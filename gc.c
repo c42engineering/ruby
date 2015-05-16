@@ -1813,10 +1813,26 @@ rb_data_object_alloc(VALUE klass, void *datap, RUBY_DATA_FUNC dmark, RUBY_DATA_F
 }
 
 VALUE
+rb_data_object_zalloc(VALUE klass, size_t size, RUBY_DATA_FUNC dmark, RUBY_DATA_FUNC dfree)
+{
+    VALUE obj = rb_data_object_alloc(klass, 0, dmark, dfree);
+    DATA_PTR(obj) = xcalloc(1, size);
+    return obj;
+}
+
+VALUE
 rb_data_typed_object_alloc(VALUE klass, void *datap, const rb_data_type_t *type)
 {
     if (klass) Check_Type(klass, T_CLASS);
     return newobj_of(klass, T_DATA | (type->flags & ~T_MASK), (VALUE)type, (VALUE)1, (VALUE)datap);
+}
+
+VALUE
+rb_data_typed_object_zalloc(VALUE klass, size_t size, const rb_data_type_t *type)
+{
+    VALUE obj = rb_data_typed_object_alloc(klass, 0, type);
+    DATA_PTR(obj) = xcalloc(1, size);
+    return obj;
 }
 
 size_t
@@ -4300,12 +4316,14 @@ gc_mark_children(rb_objspace_t *objspace, VALUE obj)
 	break;
 
       case T_DATA:
-	if (RTYPEDDATA_P(obj)) {
-	    RUBY_DATA_FUNC mark_func = any->as.typeddata.type->function.dmark;
-	    if (mark_func) (*mark_func)(DATA_PTR(obj));
-	}
-	else {
-	    if (any->as.data.dmark) (*any->as.data.dmark)(DATA_PTR(obj));
+	{
+	    void *const ptr = DATA_PTR(obj);
+	    if (ptr) {
+		RUBY_DATA_FUNC mark_func = RTYPEDDATA_P(obj) ?
+		    any->as.typeddata.type->function.dmark :
+		    any->as.data.dmark;
+		if (mark_func) (*mark_func)(ptr);
+	    }
 	}
 	break;
 

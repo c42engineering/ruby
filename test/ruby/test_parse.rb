@@ -362,7 +362,7 @@ class TestParse < Test::Unit::TestCase
 
   def test_dstr_disallowed_variable
     bug8375 = '[ruby-core:54885] [Bug #8375]'
-    %w[@ @1 @@. @@ @@1 @@. $ $%].each do |src|
+    %w[@ @1 @. @@ @@1 @@. $ $%].each do |src|
       src = '#'+src+' '
       str = assert_nothing_raised(SyntaxError, "#{bug8375} #{src.dump}") do
         break eval('"'+src+'"')
@@ -373,6 +373,25 @@ class TestParse < Test::Unit::TestCase
 
   def test_dsym
     assert_nothing_raised { eval(':""') }
+  end
+
+  def assert_disallowed_variable(type, noname, *invalid)
+    assert_syntax_error(noname, "`#{noname}' without identifiers is not allowed as #{type} variable name")
+    invalid.each do |name|
+      assert_syntax_error(name, "`#{name}' is not allowed as #{type} variable name")
+    end
+  end
+
+  def test_disallowed_instance_variable
+    assert_disallowed_variable("an instance", *%w[@ @1 @.])
+  end
+
+  def test_disallowed_class_variable
+    assert_disallowed_variable("a class", *%w[@@ @@1 @@.])
+  end
+
+  def test_disallowed_gloal_variable
+    assert_disallowed_variable("a global", *%w[$ $%])
   end
 
   def test_arg2

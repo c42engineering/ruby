@@ -936,6 +936,43 @@ rb_dump_machine_register(const ucontext_t *ctx)
 # define rb_dump_machine_register(ctx) ((void)0)
 #endif /* HAVE_PRINT_MACHINE_REGISTERS */
 
+static void
+preface_dump(void)
+{
+#if defined __APPLE__
+    static const char msg[] = ""
+	"-- Crash Report log information "
+	"--------------------------------------------\n"
+	"   See Crash Report log file under the one of following:\n"
+	"     * ~/Library/Logs/CrashReporter\n"
+	"     * /Library/Logs/CrashReporter\n"
+	"     * ~/Library/Logs/DiagnosticReports\n"
+	"     * /Library/Logs/DiagnosticReports\n"
+	"   for more details.\n"
+	"Don't forget to include the above Crash Report log file in bug reports.\n"
+	"\n";
+    const char *const endmsg = msg + sizeof(msg) - 1;
+    const char *p = msg;
+#define RED "\033[;31;1;7m"
+#define GREEN "\033[;32;7m"
+#define RESET "\033[m"
+
+    if (isatty(fileno(stderr))) {
+	const char *e = strchr(p, '\n');
+	const int w = (int)(e - p);
+	do {
+	    int i = (int)(e - p);
+	    fputs(*p == ' ' ? GREEN : RED, stderr);
+	    fwrite(p, 1, e - p, stderr);
+	    for (; i < w; ++i) fputc(' ', stderr);
+	    fputs(RESET, stderr);
+	    fputc('\n', stderr);
+	} while ((p = e + 1) < endmsg && (e = strchr(p, '\n')) != 0 && e > p + 1);
+    }
+    fwrite(p, 1, endmsg - p, stderr);
+#endif
+}
+
 void
 rb_vm_bugreport(const void *ctx)
 {
@@ -949,18 +986,8 @@ rb_vm_bugreport(const void *ctx)
 #endif
     const rb_vm_t *const vm = GET_VM();
 
-#if defined __APPLE__
-    fputs("-- Crash Report log information "
-	  "--------------------------------------------\n"
-	  "   See Crash Report log file under the one of following:\n"
-	  "     * ~/Library/Logs/CrashReporter\n"
-	  "     * /Library/Logs/CrashReporter\n"
-	  "     * ~/Library/Logs/DiagnosticReports\n"
-	  "     * /Library/Logs/DiagnosticReports\n"
-	  "   for more details.\n"
-	  "\n",
-	  stderr);
-#endif
+    preface_dump();
+
     if (vm) {
 	SDR();
 	rb_backtrace_print_as_bugreport();

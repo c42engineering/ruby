@@ -1,3 +1,142 @@
+Fri May 15 18:28:20 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* array.c (rb_ary_assoc, rb_ary_rassoc): [DOC] the result when key
+	  was found is the existing element, not a new array.  reported by
+	  Giau Nguyen <giaunv AT nustechnology.com>.
+
+Fri May 15 08:24:28 2015  Takeyuki FUJIOKA  <xibbar@ruby-lang.org>
+
+	* lib/cgi/cookie.rb: Implement HttpOnly flag for cookies.
+	  [fix GH-887] Patch by @martinpovolny
+
+Fri May 15 06:54:19 2015  Aaron Patterson <tenderlove@ruby-lang.org>
+
+	* variable.c: Change autoload to call `require` through Ruby rather
+	  than directly calling `rb_require_safe`.  This allows things like
+	  RubyGems to intercept file loading done though `autoload`.
+	  [Feature #11140]
+
+	* test/ruby/test_autoload.rb: Test for change.
+
+Wed Apr  8 19:18:02 2015  Shota Fukumori (sora_h)  <her@sorah.jp>
+
+	* enum.c (enum_grep_v, grep_i, grep_iter_i, Init_enum):
+	  Implement Enumerable#grep_v. [Feature #11049]
+
+Thu May 14 15:54:13 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* ext/pathname/lib/pathname.rb: Remove condition of RUBY_VERSION <= 1.9.
+	  [Feature #11082]
+
+Wed May 13 17:10:37 2015  Masaki Matsushita <glass.saga@gmail.com>
+
+	* enum.c (enum_to_a): revert r50457.
+	  it requires recursion check.
+	  then, it doesn't make performance improvement.
+	  [Bug #11130] [Feature #9118]
+
+Wed May 13 11:13:40 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* parse.y (parse_gvar): separate message for gvar without
+	  non-space characters from message for invalid identifiers.
+
+Tue May 12 22:18:27 2015  Masaki Matsushita <glass.saga@gmail.com>
+
+	* enum.c (enum_to_a): fix incompatibility introduced in r50457.
+	  [Bug #11130]
+
+	* test/ruby/test_enum.rb: test for above.
+
+Tue May 12 17:08:03 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h: remove unused declaration.
+
+Mon May 11 10:58:45 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* gems/bundled_gems: Update minitest-5.6.1 and power_assert-0.2.3.
+
+Mon May 11 00:20:31 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* include/ruby/ruby.h (Data_Make_Struct, TypedData_Make_Struct):
+	  allocate wrapper data object before allocating DATA_PTR to get
+	  rid of possible memory leak when the former failed.
+
+Sun May 10 21:32:45 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* gc.c (gc_mark_children): call dmark function for non-NULL
+	  pointers only, so that DATA_PTR can be NULL safely now.
+
+Sun May 10 16:23:58 2015  Kazuki Tsujimoto  <kazuki@callcc.net>
+
+	* proc.c (proc_binding): fix segmentation fault on marking phase.
+	  envptr of newenvval should not be NULL.
+
+	  You can reproduce by
+	   make test-all TESTS='--gc-stress -n test_to_proc_binding ruby/test_method.rb'
+
+Sun May 10 12:41:18 2015  Masaki Matsushita <glass.saga@gmail.com>
+
+	* ext/zlib/zlib.c (rb_gzreader_external_encoding):
+	  define GzipReader#external_encoding.
+	  [Bug #10900]
+
+	* test/zlib/test_zlib.rb: test for above.
+
+Sun May 10 11:57:48 2015  Masaki Matsushita <glass.saga@gmail.com>
+
+	* ext/win32ole/win32ole_variant.c: fix typo "indicies".
+	  the patch is from davydovanton <antondavydov.o at gmail.com>.
+	  [fix GH-892]
+
+	* lib/rubygems/indexer.rb: ditto.
+
+	* test/rubygems/test_gem_indexer.rb: ditto.
+
+Sun May 10 11:44:37 2015  Masaki Matsushita <glass.saga@gmail.com>
+
+	* string.c (rb_str_crypt): Raise ArgumentError when
+	  string passed to String#crypt contains null.
+	  the patch is from jrusnack <jrusnack at redhat.com>.
+	  [Bug #10988] [fix GH-853]
+
+	* test/ruby/test_string.rb: test for above.
+
+Sun May 10 11:23:03 2015  Masaki Matsushita <glass.saga@gmail.com>
+
+	* enum.c (enum_to_a): Use size to set array capa when possible.
+	  the patch is from HonoreDB <aweiner at mdsol.com>.
+	  [fix GH-444]
+
+Sat May  9 06:48:36 2015  Eric Wong  <e@80x24.org>
+
+	* ext/socket/ancdata.c (bsock_recvmsg_internal): GC guard
+	  [Bug #11123]
+
+Fri May  8 22:57:24 2015  takiy33  <takiy33@gmail.com>
+
+	* test/matrix/test_matrix.rb (test_determinant): refactor test on
+	  Matrix#determinant, by merging with test_det for an alias method
+	  det.  [Fix GH-897]
+
+Fri May  8 15:43:11 2015  Shugo Maeda  <shugo@ruby-lang.org>
+
+	* lib/net/imap.rb (body_ext_mpart): should work even if body-fld-dsp
+	  is omitted.  [ruby-core:69093] [Bug #11128]
+
+Fri May  8 15:05:57 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* doc/syntax/control_expressions.rdoc: fix a missing "a"
+	  [fix GH-888][ci skip] Patch by @riffraff
+
+Fri May  8 12:11:33 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* vm_eval.c (rb_method_call_status): resolve refined method entry
+	  to check if undefined.  [ruby-core:69064] [Bug #11117]
+
+Thu May  7 22:22:59 2015  Sho Hashimoto  <sho-h@ruby-lang.org>
+
+	* proc.c: [DOC] fix Binding#local_variable_set example. [ci skip]
+
 Thu May  7 11:32:57 2015  NARUSE, Yui  <naruse@ruby-lang.org>
 
 	* Makefile.in (rbconfig.rb): add rule to make.
