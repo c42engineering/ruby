@@ -1,5 +1,7 @@
-*.tags*
-*.sublime-*
+*.tags
+*.tags_sorted_by_file
+*.sublime-workspace
+*.sublime-project
 build
 *-*-*.def
 *-*-*.exp
