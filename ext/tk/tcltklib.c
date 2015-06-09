@@ -6134,6 +6134,9 @@ ip_init(argc, argv, self)
 
     /* create object */
     TypedData_Get_Struct(self, struct tcltkip, &tcltkip_type, ptr);
+    if (DATA_PTR(self)) {
+	rb_raise(rb_eArgError, "already initialized interpreter");
+    }
     ptr = ALLOC(struct tcltkip);
     /* ptr = RbTk_ALLOC_N(struct tcltkip, 1); */
     DATA_PTR(self) = ptr;
@@ -6371,10 +6374,11 @@ ip_create_slave_core(interp, argc, argv)
     VALUE *argv;
 {
     struct tcltkip *master = get_ip(interp);
-    struct tcltkip *slave = ALLOC(struct tcltkip);
+    struct tcltkip *slave;
     /* struct tcltkip *slave = RbTk_ALLOC_N(struct tcltkip, 1); */
     VALUE safemode;
     VALUE name;
+    VALUE new_ip;
     int safe;
     int thr_crit_bup;
     Tk_Window mainWin;
@@ -6413,6 +6417,8 @@ ip_create_slave_core(interp, argc, argv)
     }
 #endif
 
+    new_ip = TypedData_Make_Struct(CLASS_OF(interp), struct tcltkip,
+				   &tcltkip_type, slave);
     /* create slave-ip */
 #ifdef RUBY_USE_NATIVE_THREAD
     /* slave->tk_thread_id = 0; */
@@ -6472,7 +6478,7 @@ ip_create_slave_core(interp, argc, argv)
 
     rb_thread_critical = thr_crit_bup;
 
-    return TypedData_Wrap_Struct(CLASS_OF(interp), &tcltkip_type, slave);
+    return new_ip;
 }
 
 static VALUE

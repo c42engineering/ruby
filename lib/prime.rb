@@ -57,9 +57,6 @@ end
 #
 # == Retrieving the instance
 #
-# +Prime+.new is obsolete. Now +Prime+ has the default instance and you can
-# access it as +Prime+.instance.
-#
 # For convenience, each instance method of +Prime+.instance can be accessed
 # as a class method of +Prime+.
 #
@@ -90,20 +87,11 @@ end
 
 class Prime
   include Enumerable
-  @the_instance = Prime.new
-
-  # obsolete. Use +Prime+::+instance+ or class methods of +Prime+.
-  def initialize
-    @generator = EratosthenesGenerator.new
-    extend OldCompatibility
-    warn "Prime::new is obsolete. use Prime::instance or class methods of Prime."
-  end
+  include Singleton
 
   class << self
     extend Forwardable
     include Enumerable
-    # Returns the default instance of Prime.
-    def instance; @the_instance end
 
     def method_added(method) # :nodoc:
       (class<< self;self;end).def_delegator :instance, method
@@ -136,14 +124,6 @@ class Prime
   #   Upper bound of prime numbers. The iterator stops after it
   #   yields all prime numbers p <= +ubound+.
   #
-  # == Note
-  #
-  # +Prime+.+new+ returns an object extended by +Prime+::+OldCompatibility+
-  # in order to be compatible with Ruby 1.8, and +Prime+#each is overwritten
-  # by +Prime+::+OldCompatibility+#+each+.
-  #
-  # +Prime+.+new+ is now obsolete. Use +Prime+.+instance+.+each+ or simply
-  # +Prime+.+each+.
   def each(ubound = nil, generator = EratosthenesGenerator.new, &block)
     generator.upper_bound = ubound
     generator.each(&block)
@@ -158,7 +138,7 @@ class Prime
   # +generator+:: optional. A pseudo-prime generator.
   def prime?(value, generator = Prime::Generator23.new)
     return false if value < 2
-    for num in generator
+    generator.each do |num|
       q,r = value.divmod num
       return true if q < num
       return false if r == 0
@@ -216,7 +196,7 @@ class Prime
     else
       pv = []
     end
-    for prime in generator
+    generator.each do |prime|
       count = 0
       while (value1, mod = value.divmod(prime)
              mod) == 0
@@ -231,7 +211,7 @@ class Prime
     if value > 1
       pv.push [value, 1]
     end
-    return pv
+    pv
   end
 
   # An abstract class for enumerating pseudo-prime numbers.
@@ -360,7 +340,7 @@ class Prime
         when 3; @prime = 5; @step = 2
         end
       end
-      return @prime
+      @prime
     end
     alias next succ
     def rewind
@@ -387,7 +367,7 @@ class Prime
 
     # Returns the cached prime numbers.
     def cache
-      return @primes
+      @primes
     end
     alias primes cache
     alias primes_so_far cache
@@ -412,7 +392,7 @@ class Prime
         @primes.push @next_to_check if @primes[2..@ulticheck_index].find {|prime| @next_to_check % prime == 0 }.nil?
         @next_to_check += 2
       end
-      return @primes[index]
+      @primes[index]
     end
   end
 
@@ -445,13 +425,10 @@ class Prime
       root = Integer(Math.sqrt(segment_max).floor)
 
       sieving_primes = @primes[1 .. -1].take_while { |prime| prime <= root }
-      offsets = Array.new(sieving_primes.size) do |i|
-        (-(segment_min + 1 + sieving_primes[i]) / 2) % sieving_primes[i]
-      end
 
       segment = ((segment_min + 1) .. segment_max).step(2).to_a
-      sieving_primes.each_with_index do |prime, index|
-        composite_index = offsets[index]
+      sieving_primes.each do |prime|
+        composite_index = (-(segment_min + 1 + prime) / 2) % prime
         while composite_index < segment.size do
           segment[composite_index] = nil
           composite_index += prime
@@ -462,26 +439,6 @@ class Prime
         @primes.push prime unless prime.nil?
       end
       @max_checked = segment_max
-    end
-  end
-
-  # Provides a +Prime+ object with compatibility to Ruby 1.8 when instantiated via +Prime+.+new+.
-  module OldCompatibility
-    # Returns the next prime number and forwards internal pointer.
-    def succ
-      @generator.succ
-    end
-    alias next succ
-
-    # Overwrites Prime#each.
-    #
-    # Iterates the given block over all prime numbers. Note that enumeration
-    # starts from the current position of internal pointer, not rewound.
-    def each
-      return @generator.dup unless block_given?
-      loop do
-        yield succ
-      end
     end
   end
 end

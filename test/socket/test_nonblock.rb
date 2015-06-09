@@ -1,5 +1,6 @@
 begin
   require "socket"
+  require "io/nonblock"
 rescue LoadError
 end
 
@@ -24,6 +25,9 @@ class TestSocketNonblock < Test::Unit::TestCase
       s, sockaddr = serv.accept_nonblock
     end
     assert_equal(Socket.unpack_sockaddr_in(c.getsockname), Socket.unpack_sockaddr_in(sockaddr))
+    if s.respond_to?(:nonblock?)
+      assert_predicate(s, :nonblock?, 'accepted socket is non-blocking')
+    end
   ensure
     serv.close if serv
     c.close if c
@@ -269,6 +273,19 @@ class TestSocketNonblock < Test::Unit::TestCase
         assert_kind_of(IO::WaitWritable, $!)
       end
     }
+  end
+
+  if defined?(UNIXSocket) && defined?(Socket::SOCK_SEQPACKET)
+    def test_sendmsg_nonblock_seqpacket
+      buf = '*' * 8192
+      UNIXSocket.pair(:SEQPACKET) do |s1, s2|
+        assert_raise(IO::WaitWritable) do
+          loop { s1.sendmsg_nonblock(buf) }
+        end
+      end
+    rescue NotImplementedError, Errno::ENOSYS, Errno::EPROTONOSUPPORT
+      skip "UNIXSocket.pair(:SEQPACKET) not implemented on this platform: #{$!}"
+    end
   end
 
   def test_recvmsg_nonblock_error

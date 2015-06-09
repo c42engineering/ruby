@@ -236,17 +236,16 @@ cont_free(void *ptr)
 	else {
 	    /* fiber */
 	    rb_fiber_t *fib = (rb_fiber_t*)cont;
+	    const rb_thread_t *const th = GET_THREAD();
 #ifdef _WIN32
-	    if (GET_THREAD()->fiber != fib && cont->type != ROOT_FIBER_CONTEXT) {
+	    if (th && th->fiber != fib && cont->type != ROOT_FIBER_CONTEXT) {
 		/* don't delete root fiber handle */
-		rb_fiber_t *fib = (rb_fiber_t*)cont;
 		if (fib->fib_handle) {
 		    DeleteFiber(fib->fib_handle);
 		}
 	    }
 #else /* not WIN32 */
-	    if (GET_THREAD()->fiber != fib) {
-                rb_fiber_t *fib = (rb_fiber_t*)cont;
+	    if (th && th->fiber != fib) {
                 if (fib->ss_sp) {
                     if (cont->type == ROOT_FIBER_CONTEXT) {
 			rb_bug("Illegal root fiber parameter");
@@ -1209,7 +1208,6 @@ fiber_init(VALUE fibval, VALUE proc)
     th->cfp->iseq = 0;
     th->cfp->proc = 0;
     th->cfp->block_iseq = 0;
-    th->cfp->me = 0;
     th->tag = 0;
     th->local_storage = st_init_numtable();
     th->local_storage_recursive_hash = Qnil;
@@ -1257,7 +1255,7 @@ rb_fiber_start(void)
 	cont->value = Qnil;
 	th->errinfo = Qnil;
 	th->root_lep = rb_vm_ep_local_ep(proc->block.ep);
-	th->root_svar = Qnil;
+	th->root_svar = Qfalse;
 
 	fib->status = RUNNING;
 	cont->value = rb_vm_invoke_proc(th, proc, argc, argv, 0);

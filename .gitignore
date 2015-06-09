@@ -2,6 +2,8 @@
 *.sublime-*
 build
 *-*-*.def
+*-*-*.exp
+*-*-*.lib
 *.a
 *.bak
 *.dSYM
@@ -11,7 +13,9 @@ build
 *.inc
 *.log
 *.o
+*.obj
 *.orig
+*.pdb
 *.rej
 *.sav
 *.swp
@@ -33,7 +37,11 @@ y.tab.c
 
 # /
 /*-fake.rb
+/*.dll
+/*.exe
+/*.res
 /*.pc
+/*.rc
 /*_prelude.c
 /COPYING.LIB
 /ChangeLog-*
@@ -100,6 +108,7 @@ y.tab.c
 /transdb.h
 /uncommon.mk
 /verconf.h
+/verconf.mk
 /web
 /yasmdata.rb
 
@@ -108,14 +117,24 @@ y.tab.c
 /benchmark/fasta.output.*
 /benchmark/wc.input
 
+/enc/*.def
+/enc/*.exp
+/enc/*.lib
 /enc/unicode/data
 
 # /enc/trans/
 /enc/trans/*.c
+/enc/trans/*.def
+/enc/trans/*.exp
+/enc/trans/*.lib
 /enc/trans/.time
 
 # /ext/
 /ext/extinit.c
+
+# /ext/-test-/win32/dln/
+/ext/-test-/win32/dln/dlntest.exp
+/ext/-test-/win32/dln/dlntest.lib
 
 # /ext/dl/callback/
 /ext/dl/callback/callback-*.c

@@ -15,7 +15,7 @@ struct local_var_list {
     VALUE tbl;
 };
 
-static inline VALUE method_missing(VALUE obj, ID id, int argc, const VALUE *argv, int call_status);
+static inline VALUE method_missing(VALUE obj, ID id, int argc, const VALUE *argv, enum method_missing_reason call_status);
 static inline VALUE vm_yield_with_cref(rb_thread_t *th, int argc, const VALUE *argv, const rb_cref_t *cref);
 static inline VALUE vm_yield(rb_thread_t *th, int argc, const VALUE *argv);
 static inline VALUE vm_yield_with_block(rb_thread_t *th, int argc, const VALUE *argv, const rb_block_t *blockargptr);
@@ -120,8 +120,8 @@ vm_call0_cfunc_with_frame(rb_thread_t* th, rb_call_info_t *ci, const VALUE *argv
 	rb_control_frame_t *reg_cfp = th->cfp;
 
 	vm_push_frame(th, 0, VM_FRAME_MAGIC_CFUNC, recv, defined_class,
-		      VM_ENVVAL_BLOCK_PTR(blockptr), NULL /* cref */,
-		      0, reg_cfp->sp, 1, me, 0);
+		      VM_ENVVAL_BLOCK_PTR(blockptr), (VALUE)me,
+		      0, reg_cfp->sp, 1, 0);
 
 	if (len >= 0) rb_check_arity(argc, len, len);
 
@@ -152,8 +152,6 @@ static VALUE
 vm_call0_body(rb_thread_t* th, rb_call_info_t *ci, const VALUE *argv)
 {
     VALUE ret;
-
-    if (!ci->me->def) return Qnil;
 
     if (th->passed_block) {
 	ci->blockptr = (rb_block_t *)th->passed_block;
@@ -200,21 +198,25 @@ vm_call0_body(rb_thread_t* th, rb_call_info_t *ci, const VALUE *argv)
       case VM_METHOD_TYPE_REFINED:
 	{
 	    const rb_method_type_t type = ci->me->def->type;
-	    if (type == VM_METHOD_TYPE_REFINED &&
-		ci->me->def->body.orig_me) {
-		ci->me = ci->me->def->body.orig_me;
+	    if (type == VM_METHOD_TYPE_REFINED && ci->me->def->body.refined.orig_me) {
+		ci->me = ci->me->def->body.refined.orig_me;
 		goto again;
 	    }
 
 	    ci->defined_class = RCLASS_SUPER(ci->defined_class);
 
 	    if (!ci->defined_class || !(ci->me = rb_method_entry(ci->defined_class, ci->mid, &ci->defined_class))) {
-		int ex = type == VM_METHOD_TYPE_ZSUPER ? NOEX_SUPER : 0;
+		enum method_missing_reason ex = (type == VM_METHOD_TYPE_ZSUPER) ? MISSING_SUPER : 0;
 		ret = method_missing(ci->recv, ci->mid, ci->argc, argv, ex);
 		goto success;
 	    }
 	    RUBY_VM_CHECK_INTS(th);
-	    if (!ci->me->def) return Qnil;
+	    goto again;
+	}
+      case VM_METHOD_TYPE_ALIAS:
+	{
+	    ci->me = ci->me->def->body.alias.original_me;
+	    ci->defined_class = find_defined_class_by_owner(ci->defined_class, ci->me->klass);
 	    goto again;
 	}
       case VM_METHOD_TYPE_MISSING:
@@ -277,10 +279,10 @@ vm_call_super(rb_thread_t *th, int argc, const VALUE *argv)
 
     klass = RCLASS_ORIGIN(cfp->klass);
     klass = RCLASS_SUPER(klass);
-    id = cfp->me->def->original_id;
+    id = rb_vm_frame_method_entry(cfp)->def->original_id;
     me = rb_method_entry(klass, id, &klass);
     if (!me) {
-	return method_missing(recv, id, argc, argv, NOEX_SUPER);
+	return method_missing(recv, id, argc, argv, MISSING_SUPER);
     }
 
     return vm_call0(th, recv, id, argc, argv, me, klass);
@@ -316,8 +318,7 @@ stack_check(void)
 
 static inline rb_method_entry_t *
     rb_search_method_entry(VALUE recv, ID mid, VALUE *defined_class_ptr);
-static inline int rb_method_call_status(rb_thread_t *th, const rb_method_entry_t *me, call_type scope, VALUE self);
-#define NOEX_OK NOEX_NOSUPER
+static inline enum method_missing_reason rb_method_call_status(rb_thread_t *th, const rb_method_entry_t *me, call_type scope, VALUE self);
 
 /*!
  * \internal
@@ -342,9 +343,9 @@ rb_call0(VALUE recv, ID mid, int argc, const VALUE *argv,
     rb_method_entry_t *me =
 	rb_search_method_entry(recv, mid, &defined_class);
     rb_thread_t *th = GET_THREAD();
-    int call_status = rb_method_call_status(th, me, scope, self);
+    enum method_missing_reason call_status = rb_method_call_status(th, me, scope, self);
 
-    if (call_status != NOEX_OK) {
+    if (call_status != MISSING_NONE) {
 	return method_missing(recv, mid, argc, argv, call_status);
     }
     stack_check();
@@ -386,7 +387,7 @@ check_funcall_respond_to(rb_thread_t *th, VALUE klass, VALUE recv, ID mid)
     VALUE defined_class;
     const rb_method_entry_t *me = rb_method_entry(klass, idRespond_to, &defined_class);
 
-    if (me && !(me->flag & NOEX_BASIC)) {
+    if (me && !METHOD_ENTRY_BASIC(me)) {
 	const rb_block_t *passed_block = th->passed_block;
 	VALUE args[2], result;
 	int arity = rb_method_entry_arity(me);
@@ -410,7 +411,7 @@ check_funcall_respond_to(rb_thread_t *th, VALUE klass, VALUE recv, ID mid)
 static int
 check_funcall_callable(rb_thread_t *th, const rb_method_entry_t *me)
 {
-    return rb_method_call_status(th, me, CALL_FCALL, th->cfp->self) == NOEX_OK;
+    return rb_method_call_status(th, me, CALL_FCALL, th->cfp->self) == MISSING_NONE;
 }
 
 static VALUE
@@ -422,7 +423,7 @@ check_funcall_missing(rb_thread_t *th, VALUE klass, VALUE recv, ID mid, int argc
     else {
 	struct rescue_funcall_args args;
 
-	th->method_missing_reason = 0;
+	th->method_missing_reason = MISSING_NOENTRY;
 	args.recv = recv;
 	args.mid = mid;
 	args.argc = argc;
@@ -445,7 +446,7 @@ rb_check_funcall(VALUE recv, ID mid, int argc, const VALUE *argv)
 	return Qundef;
 
     me = rb_search_method_entry(recv, mid, &defined_class);
-    if (check_funcall_callable(th, me) != NOEX_OK) {
+    if (!check_funcall_callable(th, me)) {
 	return check_funcall_missing(th, klass, recv, mid, argc, argv);
     }
     stack_check();
@@ -465,7 +466,7 @@ rb_check_funcall_with_hook(VALUE recv, ID mid, int argc, const VALUE *argv,
 	return Qundef;
 
     me = rb_search_method_entry(recv, mid, &defined_class);
-    if (check_funcall_callable(th, me) != NOEX_OK) {
+    if (!check_funcall_callable(th, me)) {
 	(*hook)(FALSE, recv, mid, argc, argv, arg);
 	return check_funcall_missing(th, klass, recv, mid, argc, argv);
     }
@@ -552,16 +553,16 @@ rb_search_method_entry(VALUE recv, ID mid, VALUE *defined_class_ptr)
     return rb_method_entry(klass, mid, defined_class_ptr);
 }
 
-static inline int
+static inline enum method_missing_reason
 rb_method_call_status(rb_thread_t *th, const rb_method_entry_t *me, call_type scope, VALUE self)
 {
     VALUE klass;
     ID oid;
-    int noex;
+    rb_method_visibility_t visi;
 
     if (UNDEFINED_METHOD_ENTRY_P(me)) {
       undefined:
-	return scope == CALL_VCALL ? NOEX_VCALL : 0;
+	return scope == CALL_VCALL ? MISSING_VCALL : MISSING_NOENTRY;
     }
     if (me->def->type == VM_METHOD_TYPE_REFINED) {
 	me = rb_resolve_refined_method(Qnil, me, NULL);
@@ -569,17 +570,17 @@ rb_method_call_status(rb_thread_t *th, const rb_method_entry_t *me, call_type sc
     }
     klass = me->klass;
     oid = me->def->original_id;
-    noex = me->flag;
+    visi = METHOD_ENTRY_VISI(me);
 
     if (oid != idMethodMissing) {
 	/* receiver specified form for private method */
-	if (UNLIKELY(noex)) {
-	    if (((noex & NOEX_MASK) & NOEX_PRIVATE) && scope == CALL_PUBLIC) {
-		return NOEX_PRIVATE;
+	if (UNLIKELY(visi != METHOD_VISI_PUBLIC)) {
+	    if (visi == METHOD_VISI_PRIVATE && scope == CALL_PUBLIC) {
+		return MISSING_PRIVATE;
 	    }
 
 	    /* self must be kind of a specified form for protected method */
-	    if (((noex & NOEX_MASK) & NOEX_PROTECTED) && scope == CALL_PUBLIC) {
+	    if (visi == METHOD_VISI_PROTECTED && scope == CALL_PUBLIC) {
 		VALUE defined_class = klass;
 
 		if (RB_TYPE_P(defined_class, T_ICLASS)) {
@@ -587,17 +588,17 @@ rb_method_call_status(rb_thread_t *th, const rb_method_entry_t *me, call_type sc
 		}
 
 		if (self == Qundef || !rb_obj_is_kind_of(self, defined_class)) {
-		    return NOEX_PROTECTED;
+		    return MISSING_PROTECTED;
 		}
 	    }
 
-	    if (NOEX_SAFE(noex) > th->safe_level) {
-		rb_raise(rb_eSecurityError, "calling insecure method: %"PRIsVALUE,
-			 rb_id2str(me->called_id));
+	    if (METHOD_ENTRY_SAFE(me) > th->safe_level) {
+		rb_raise(rb_eSecurityError, "calling insecure method: %"PRIsVALUE, rb_id2str(me->called_id));
 	    }
 	}
     }
-    return NOEX_OK;
+
+    return MISSING_NONE;
 }
 
 
@@ -620,7 +621,7 @@ rb_call(VALUE recv, ID mid, int argc, const VALUE *argv, call_type scope)
 }
 
 NORETURN(static void raise_method_missing(rb_thread_t *th, int argc, const VALUE *argv,
-					  VALUE obj, int call_status));
+					  VALUE obj, enum method_missing_reason call_status));
 
 /*
  *  call-seq:
@@ -663,8 +664,6 @@ rb_method_missing(int argc, const VALUE *argv, VALUE obj)
     UNREACHABLE;
 }
 
-#define NOEX_MISSING   0x80
-
 static VALUE
 make_no_method_exception(VALUE exc, const char *format, VALUE obj, int argc, const VALUE *argv)
 {
@@ -691,7 +690,7 @@ make_no_method_exception(VALUE exc, const char *format, VALUE obj, int argc, con
 
 static void
 raise_method_missing(rb_thread_t *th, int argc, const VALUE *argv, VALUE obj,
-		     int last_call_status)
+		     enum method_missing_reason last_call_status)
 {
     VALUE exc = rb_eNoMethodError;
     const char *format = 0;
@@ -702,23 +701,23 @@ raise_method_missing(rb_thread_t *th, int argc, const VALUE *argv, VALUE obj,
 
     stack_check();
 
-    if (last_call_status & NOEX_PRIVATE) {
+    if (last_call_status & MISSING_PRIVATE) {
 	format = "private method `%s' called for %s";
     }
-    else if (last_call_status & NOEX_PROTECTED) {
+    else if (last_call_status & MISSING_PROTECTED) {
 	format = "protected method `%s' called for %s";
     }
-    else if (last_call_status & NOEX_VCALL) {
+    else if (last_call_status & MISSING_VCALL) {
 	format = "undefined local variable or method `%s' for %s";
 	exc = rb_eNameError;
     }
-    else if (last_call_status & NOEX_SUPER) {
+    else if (last_call_status & MISSING_SUPER) {
 	format = "super: no superclass method `%s' for %s";
     }
 
     {
 	exc = make_no_method_exception(exc, format, obj, argc, argv);
-	if (!(last_call_status & NOEX_MISSING)) {
+	if (!(last_call_status & MISSING_MISSING)) {
 	    rb_vm_pop_cfunc_frame();
 	}
 	rb_exc_raise(exc);
@@ -726,7 +725,7 @@ raise_method_missing(rb_thread_t *th, int argc, const VALUE *argv, VALUE obj,
 }
 
 static inline VALUE
-method_missing(VALUE obj, ID id, int argc, const VALUE *argv, int call_status)
+method_missing(VALUE obj, ID id, int argc, const VALUE *argv, enum method_missing_reason call_status)
 {
     VALUE *nargv, result, work;
     rb_thread_t *th = GET_THREAD();
@@ -736,7 +735,7 @@ method_missing(VALUE obj, ID id, int argc, const VALUE *argv, int call_status)
     th->passed_block = 0;
 
     if (id == idMethodMissing) {
-	raise_method_missing(th, argc, argv, obj, call_status | NOEX_MISSING);
+	raise_method_missing(th, argc, argv, obj, call_status | MISSING_MISSING);
     }
 
     nargv = ALLOCV_N(VALUE, work, argc + 1);
@@ -744,7 +743,7 @@ method_missing(VALUE obj, ID id, int argc, const VALUE *argv, int call_status)
     MEMCPY(nargv + 1, argv, VALUE, argc);
 
     if (rb_method_basic_definition_p(CLASS_OF(obj) , idMethodMissing)) {
-	raise_method_missing(th, argc+1, nargv, obj, call_status | NOEX_MISSING);
+	raise_method_missing(th, argc+1, nargv, obj, call_status | MISSING_MISSING);
     }
     th->passed_block = blockptr;
     result = rb_funcall2(obj, idMethodMissing, argc + 1, nargv);
@@ -757,7 +756,7 @@ rb_raise_method_missing(rb_thread_t *th, int argc, const VALUE *argv,
 			VALUE obj, int call_status)
 {
     th->passed_block = 0;
-    raise_method_missing(th, argc, argv, obj, call_status | NOEX_MISSING);
+    raise_method_missing(th, argc, argv, obj, call_status | MISSING_MISSING);
 }
 
 /*!
@@ -1305,7 +1304,7 @@ eval_string_with_cref(VALUE self, VALUE src, VALUE scope, rb_cref_t *const cref_
 	if (!cref && base_block->iseq) {
 	    if (NIL_P(scope)) {
 		orig_cref = rb_vm_get_cref(base_block->ep);
-		cref = vm_cref_new(Qnil, 0, NULL);
+		cref = vm_cref_new(Qnil, METHOD_VISI_PUBLIC, NULL);
 		crefval = (VALUE) cref;
 		COPY_CREF(cref, orig_cref);
 	    }
@@ -1563,7 +1562,7 @@ yield_under(VALUE under, VALUE self, VALUE values)
 	block.self = self;
 	VM_CF_LEP(th->cfp)[0] = VM_ENVVAL_BLOCK_PTR(&block);
     }
-    cref = vm_cref_push(th, under, NOEX_PUBLIC, blockptr);
+    cref = vm_cref_push(th, under, blockptr);
     CREF_PUSHED_BY_EVAL_SET(cref);
 
     if (values == Qundef) {
@@ -1586,7 +1585,7 @@ rb_yield_refine_block(VALUE refinement, VALUE refinements)
 	block.self = refinement;
 	VM_CF_LEP(th->cfp)[0] = VM_ENVVAL_BLOCK_PTR(&block);
     }
-    cref = vm_cref_push(th, refinement, NOEX_PUBLIC, blockptr);
+    cref = vm_cref_push(th, refinement, blockptr);
     CREF_PUSHED_BY_EVAL_SET(cref);
     CREF_REFINEMENTS_SET(cref, refinements);
 
@@ -1597,7 +1596,7 @@ rb_yield_refine_block(VALUE refinement, VALUE refinements)
 static VALUE
 eval_under(VALUE under, VALUE self, VALUE src, VALUE file, int line)
 {
-    rb_cref_t *cref = vm_cref_push(GET_THREAD(), under, NOEX_PUBLIC, NULL);
+    rb_cref_t *cref = vm_cref_push(GET_THREAD(), under, NULL);
 
     if (SPECIAL_CONST_P(self) && !NIL_P(under)) {
 	CREF_PUSHED_BY_EVAL_SET(cref);
@@ -2157,9 +2156,9 @@ Init_vm_eval(void)
 
 #if 1
     rb_add_method(rb_cBasicObject, rb_intern("__send__"),
-		  VM_METHOD_TYPE_OPTIMIZED, (void *)OPTIMIZED_METHOD_TYPE_SEND, 0);
+		  VM_METHOD_TYPE_OPTIMIZED, (void *)OPTIMIZED_METHOD_TYPE_SEND, METHOD_VISI_PUBLIC);
     rb_add_method(rb_mKernel, rb_intern("send"),
-		  VM_METHOD_TYPE_OPTIMIZED, (void *)OPTIMIZED_METHOD_TYPE_SEND, 0);
+		  VM_METHOD_TYPE_OPTIMIZED, (void *)OPTIMIZED_METHOD_TYPE_SEND, METHOD_VISI_PUBLIC);
 #else
     rb_define_method(rb_cBasicObject, "__send__", rb_f_send, -1);
     rb_define_method(rb_mKernel, "send", rb_f_send, -1);

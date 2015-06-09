@@ -176,6 +176,7 @@ static ID id_write, id_read, id_getc, id_flush, id_readpartial, id_set_encoding;
 static VALUE sym_mode, sym_perm, sym_extenc, sym_intenc, sym_encoding, sym_open_args;
 static VALUE sym_textmode, sym_binmode, sym_autoclose;
 static VALUE sym_SET, sym_CUR, sym_END;
+static VALUE sym_wait_readable, sym_wait_writable;
 #ifdef SEEK_DATA
 static VALUE sym_DATA;
 #endif
@@ -2523,7 +2524,7 @@ io_getpartial(int argc, VALUE *argv, VALUE io, int nonblock, int no_exception)
                 goto again;
             if (nonblock && (errno == EWOULDBLOCK || errno == EAGAIN)) {
                 if (no_exception)
-                    return ID2SYM(rb_intern("wait_readable"));
+                    return sym_wait_readable;
                 else
 		    rb_readwrite_sys_fail(RB_IO_WAIT_READABLE, "read would block");
             }
@@ -2717,7 +2718,7 @@ io_write_nonblock(VALUE io, VALUE str, int no_exception)
     if (n == -1) {
         if (errno == EWOULDBLOCK || errno == EAGAIN) {
 	    if (no_exception) {
-		return ID2SYM(rb_intern("wait_writable"));
+		return sym_wait_writable;
 	    }
 	    else {
 		rb_readwrite_sys_fail(RB_IO_WAIT_WRITABLE, "write would block");
@@ -3112,6 +3113,7 @@ prepare_getline_args(int argc, VALUE *argv, VALUE *rsp, long *limit, VALUE io)
     VALUE rs = rb_rs, lim = Qnil;
     rb_io_t *fptr;
 
+    rb_check_arity(argc, 0, 2);
     if (argc == 1) {
         VALUE tmp = Qnil;
 
@@ -3123,7 +3125,7 @@ prepare_getline_args(int argc, VALUE *argv, VALUE *rsp, long *limit, VALUE io)
         }
     }
     else if (2 <= argc) {
-        rb_scan_args(argc, argv, "2", &rs, &lim);
+	rs = argv[0], lim = argv[1];
         if (!NIL_P(rs))
             StringValue(rs);
     }
@@ -8688,8 +8690,8 @@ rb_io_advise(int argc, VALUE *argv, VALUE io)
  *     IO.select(read_array [, write_array [, error_array [, timeout]]]) -> array  or  nil
  *
  *  Calls select(2) system call.
- *  It monitors given arrays of <code>IO</code> objects, waits one or more
- *  of <code>IO</code> objects ready for reading, are ready for writing,
+ *  It monitors given arrays of <code>IO</code> objects, waits until one or more
+ *  of <code>IO</code> objects are ready for reading, are ready for writing,
  *  and have pending exceptions respectively, and returns an array that
  *  contains arrays of those IO objects.  It will return <code>nil</code>
  *  if optional <i>timeout</i> value is given and no <code>IO</code> object
@@ -8697,13 +8699,13 @@ rb_io_advise(int argc, VALUE *argv, VALUE io)
  *
  *  <code>IO.select</code> peeks the buffer of <code>IO</code> objects for testing readability.
  *  If the <code>IO</code> buffer is not empty,
- *  <code>IO.select</code> immediately notify readability.
- *  This "peek" is only happen for <code>IO</code> objects.
- *  It is not happen for IO-like objects such as OpenSSL::SSL::SSLSocket.
+ *  <code>IO.select</code> immediately notifies readability.
+ *  This "peek" only happens for <code>IO</code> objects.
+ *  It does not happen for IO-like objects such as OpenSSL::SSL::SSLSocket.
  *
  *  The best way to use <code>IO.select</code> is invoking it
  *  after nonblocking methods such as <code>read_nonblock</code>, <code>write_nonblock</code>, etc.
- *  The methods raises an exception which is extended by
+ *  The methods raise an exception which is extended by
  *  <code>IO::WaitReadable</code> or <code>IO::WaitWritable</code>.
  *  The modules notify how the caller should wait with <code>IO.select</code>.
  *  If <code>IO::WaitReadable</code> is raised, the caller should wait for reading.
@@ -8731,37 +8733,37 @@ rb_io_advise(int argc, VALUE *argv, VALUE io)
  *  This means that readability notified by <code>IO.select</code> doesn't mean
  *  readability from <code>OpenSSL::SSL::SSLSocket</code> object.
  *
- *  Most possible situation is <code>OpenSSL::SSL::SSLSocket</code> buffers some data.
+ *  The most likely situation is that <code>OpenSSL::SSL::SSLSocket</code> buffers some data.
  *  <code>IO.select</code> doesn't see the buffer.
  *  So <code>IO.select</code> can block when <code>OpenSSL::SSL::SSLSocket#readpartial</code> doesn't block.
  *
- *  However several more complicated situation exists.
+ *  However, several more complicated situations exist.
  *
  *  SSL is a protocol which is sequence of records.
- *  The record consists multiple bytes.
+ *  The record consists of multiple bytes.
  *  So, the remote side of SSL sends a partial record,
  *  <code>IO.select</code> notifies readability but
  *  <code>OpenSSL::SSL::SSLSocket</code> cannot decrypt a byte and
  *  <code>OpenSSL::SSL::SSLSocket#readpartial</code> will blocks.
  *
  *  Also, the remote side can request SSL renegotiation which forces
- *  the local SSL engine writes some data.
+ *  the local SSL engine to write some data.
  *  This means <code>OpenSSL::SSL::SSLSocket#readpartial</code> may
  *  invoke <code>write</code> system call and it can block.
- *  In such situation, <code>OpenSSL::SSL::SSLSocket#read_nonblock</code>
+ *  In such a situation, <code>OpenSSL::SSL::SSLSocket#read_nonblock</code>
  *  raises IO::WaitWritable instead of blocking.
  *  So, the caller should wait for ready for writability as above example.
  *
  *  The combination of nonblocking methods and <code>IO.select</code> is
  *  also useful for streams such as tty, pipe socket socket when
- *  multiple process read form a stream.
+ *  multiple processes read from a stream.
  *
- *  Finally, Linux kernel developers doesn't guarantee that
+ *  Finally, Linux kernel developers don't guarantee that
  *  readability of select(2) means readability of following read(2) even
- *  for single process.
+ *  for a single process.
  *  See select(2) manual on GNU/Linux system.
  *
- *  Invoking <code>IO.select</code> before <code>IO#readpartial</code> works well in usual.
+ *  Invoking <code>IO.select</code> before <code>IO#readpartial</code> works well as usual.
  *  However it is not the best way to use <code>IO.select</code>.
  *
  *  The writability notified by select(2) doesn't show
@@ -12444,4 +12446,6 @@ Init_IO(void)
 #ifdef SEEK_HOLE
     sym_HOLE = ID2SYM(rb_intern("HOLE"));
 #endif
+    sym_wait_readable = ID2SYM(rb_intern("wait_readable"));
+    sym_wait_writable = ID2SYM(rb_intern("wait_writable"));
 }

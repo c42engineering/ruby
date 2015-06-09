@@ -1199,7 +1199,8 @@ allocate_cbsubst_info(struct cbsubst_info **inf_ptr)
   volatile VALUE proc, aliases;
   int idx;
 
-  inf = ALLOC(struct cbsubst_info);
+  VALUE info = TypedData_Make_Struct(cSUBST_INFO, struct cbsubst_info,
+				     &cbsubst_info_type, inf);
 
   inf->full_subst_length = 0;
 
@@ -1218,7 +1219,7 @@ allocate_cbsubst_info(struct cbsubst_info **inf_ptr)
 
   if (inf_ptr != (struct cbsubst_info **)NULL) *inf_ptr = inf;
 
-  return TypedData_Wrap_Struct(cSUBST_INFO, &cbsubst_info_type, inf);
+  return info;
 }
 
 static void
@@ -1246,7 +1247,7 @@ cbsubst_initialize(argc, argv, self)
 
     inf = cbsubst_get_ptr(rb_obj_class(self));
 
-   idx = 0;
+    idx = 0;
     for(iv_idx = 0; iv_idx < CBSUBST_TBL_MAX; iv_idx++) {
       if ( inf->ivar[iv_idx] == (ID) 0 ) continue;
       rb_ivar_set(self, inf->ivar[iv_idx], argv[idx++]);
@@ -1323,15 +1324,46 @@ cbsubst_def_attr_aliases(self, tbl)
 }
 
 static VALUE
+cbsubst_append_inf_key(str, inf, idx)
+    VALUE str;
+    const struct cbsubst_info *inf;
+    int idx;
+{
+    const long len = inf->keylen[idx];
+    const long olen = RSTRING_LEN(str);
+    char *buf, *ptr;
+
+    rb_str_modify_expand(str, (len ? len : 1) + 2);
+    buf = RSTRING_PTR(str);
+    ptr = buf + olen;
+
+    *(ptr++) = '%';
+
+    if (len != 0) {
+	/* longname */
+	strncpy(ptr, inf->key[idx], len);
+	ptr += len;
+    }
+    else {
+	/* single char */
+	*(ptr++) = (unsigned char)idx;
+    }
+
+    *(ptr++) = ' ';
+
+    rb_str_set_len(str, ptr - buf);
+
+    return str;
+}
+
+static VALUE
 cbsubst_sym_to_subst(self, sym)
     VALUE self;
     VALUE sym;
 {
     struct cbsubst_info *inf;
     VALUE str;
-    char *buf, *ptr;
     int idx;
-    long len;
     ID id;
     volatile VALUE ret;
 
@@ -1352,27 +1384,7 @@ cbsubst_sym_to_subst(self, sym)
     }
     if (idx >= CBSUBST_TBL_MAX)  return sym;
 
-    ptr = buf = ALLOC_N(char, inf->full_subst_length + 1);
-
-    *(ptr++) = '%';
-
-    if ((len = inf->keylen[idx]) != 0) {
-      /* longname */
-      strncpy(ptr, inf->key[idx], len);
-      ptr += len;
-    } else {
-      /* single char */
-      *(ptr++) = (unsigned char)idx;
-    }
-
-    *(ptr++) = ' ';
-    *(ptr++) = '\0';
-
-    ret = rb_str_new2(buf);
-
-    xfree(buf);
-
-    return ret;
+    return cbsubst_append_inf_key(rb_str_new(0, 0), inf, idx);
 }
 
 static VALUE
@@ -1383,16 +1395,13 @@ cbsubst_get_subst_arg(argc, argv, self)
 {
     struct cbsubst_info *inf;
     VALUE str;
-    char *buf, *ptr;
     int i, idx;
-    long len;
     ID id;
-    volatile VALUE arg_sym, ret;
+    VALUE arg_sym, ret, result;
 
     inf = cbsubst_get_ptr(self);
 
-    ptr = buf = ALLOC_N(char, inf->full_subst_length + 1);
-
+    result = rb_str_new(0, 0);
     for(i = 0; i < argc; i++) {
         switch(TYPE(argv[i])) {
         case T_STRING:
@@ -1424,27 +1433,10 @@ cbsubst_get_subst_arg(argc, argv, self)
             rb_raise(rb_eArgError, "cannot find attribute :%"PRIsVALUE, str);
         }
 
-	*(ptr++) = '%';
-
-	if ((len = inf->keylen[idx]) != 0) {
-	  /* longname */
-	  strncpy(ptr, inf->key[idx], len);
-	  ptr += len;
-	} else {
-	  /* single char */
-	  *(ptr++) = (unsigned char)idx;
-	}
-
-	*(ptr++) = ' ';
+	result = cbsubst_append_inf_key(result, inf, idx);
     }
 
-    *ptr = '\0';
-
-    ret = rb_str_new2(buf);
-
-    xfree(buf);
-
-    return ret;
+    return result;
 }
 
 static VALUE
@@ -1453,23 +1445,24 @@ cbsubst_get_subst_key(self, str)
     VALUE str;
 {
     struct cbsubst_info *inf;
-    volatile VALUE list;
-    volatile VALUE ret;
-    VALUE keyval;
+    VALUE list;
+    VALUE ret;
     long i, len, keylen;
     int idx;
-    char *buf, *ptr, *key;
+    char *buf, *ptr;
 
     list = rb_funcall(cTclTkLib, ID_split_tklist, 1, str);
+    Check_Type(list, T_ARRAY);
     len = RARRAY_LEN(list);
 
     inf = cbsubst_get_ptr(self);
 
-    ptr = buf = ALLOC_N(char, inf->full_subst_length + len + 1);
+    ret = rb_str_new(0, len);
+    ptr = buf = RSTRING_PTR(ret);
 
     for(i = 0; i < len; i++) {
-      keyval = RARRAY_PTR(list)[i];
-      key = RSTRING_PTR(keyval);
+      VALUE keyval = RARRAY_CONST_PTR(list)[i];
+      const char *key = (Check_Type(keyval, T_STRING), StringValueCStr(keyval));
       if (*key == '%') {
 	if (*(key + 2) == '\0') {
 	  /* single char */
@@ -1493,10 +1486,8 @@ cbsubst_get_subst_key(self, str)
 	*(ptr++) = ' ';
       }
     }
-    *ptr = '\0';
 
-    ret = rb_str_new2(buf);
-    xfree(buf);
+    rb_str_set_len(ret, ptr - buf);
     return ret;
 }
 
@@ -1505,45 +1496,26 @@ cbsubst_get_all_subst_keys(self)
     VALUE self;
 {
     struct cbsubst_info *inf;
-    char *buf, *ptr;
     char *keys_buf, *keys_ptr;
     int idx;
-    long len;
-    volatile VALUE ret;
+    VALUE str, keys_str;
 
     inf = cbsubst_get_ptr(self);
 
-    ptr = buf = ALLOC_N(char, inf->full_subst_length + 1);
-    keys_ptr = keys_buf = ALLOC_N(char, CBSUBST_TBL_MAX + 1);
+    str = rb_str_new(0, 0);
+    keys_str = rb_str_new(0, CBSUBST_TBL_MAX);
+    keys_ptr = keys_buf = RSTRING_PTR(keys_str);
 
     for(idx = 0; idx < CBSUBST_TBL_MAX; idx++) {
       if (inf->ivar[idx] == (ID) 0) continue;
 
       *(keys_ptr++) = (unsigned char)idx;
 
-      *(ptr++) = '%';
-
-      if ((len = inf->keylen[idx]) != 0) {
-	/* longname */
-	strncpy(ptr, inf->key[idx], len);
-	ptr += len;
-      } else {
-	/* single char */
-	*(ptr++) = (unsigned char)idx;
-      }
-
-      *(ptr++) = ' ';
+      str = cbsubst_append_inf_key(str, inf, idx);
     }
+    rb_str_set_len(keys_str, keys_ptr - keys_buf);
 
-    *ptr = '\0';
-    *keys_ptr = '\0';
-
-    ret = rb_ary_new3(2, rb_str_new2(keys_buf), rb_str_new2(buf));
-
-    xfree(buf);
-    xfree(keys_buf);
-
-    return ret;
+    return rb_ary_new3(2, keys_str, str);
 }
 
 static VALUE
@@ -1567,6 +1539,9 @@ cbsubst_table_setup(argc, argv, self)
     proc_inf = longkey_inf;
     longkey_inf = rb_ary_new();
   }
+  Check_Type(key_inf, T_ARRAY);
+  Check_Type(longkey_inf, T_ARRAY);
+  Check_Type(proc_inf, T_ARRAY);
 
   /* check the number of longkeys */
   if (RARRAY_LEN(longkey_inf) > 125 /* from 0x80 to 0xFD */) {
@@ -1642,6 +1617,7 @@ cbsubst_table_setup(argc, argv, self)
   for(idx = 0; idx < len; idx++) {
     inf = RARRAY_PTR(proc_inf)[idx];
     if (!RB_TYPE_P(inf, T_ARRAY)) continue;
+    if (RARRAY_LEN(inf) < 2) continue;
     rb_hash_aset(subst_inf->proc,
 		 (RB_TYPE_P(RARRAY_PTR(inf)[0], T_STRING)?
 		  INT2FIX(*(RSTRING_PTR(RARRAY_PTR(inf)[0]))) :
@@ -1669,9 +1645,9 @@ cbsubst_scan_args(self, arg_key, val_ary)
 {
     struct cbsubst_info *inf;
     long idx;
-    unsigned char *keyptr = (unsigned char*)RSTRING_PTR(arg_key);
+    unsigned char *keyptr = (unsigned char*)StringValueCStr(arg_key);
     long keylen = RSTRING_LEN(arg_key);
-    long vallen = RARRAY_LEN(val_ary);
+    long vallen = (Check_Type(val_ary, T_ARRAY), RARRAY_LEN(val_ary));
     unsigned char type_chr;
     volatile VALUE dst = rb_ary_new2(vallen);
     volatile VALUE proc;

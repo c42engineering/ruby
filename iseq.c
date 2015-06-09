@@ -582,6 +582,7 @@ rb_iseq_compile_with_option(VALUE src, VALUE file, VALUE absolute_path, VALUE li
 	if (RB_TYPE_P((src), T_FILE))
 	    node = rb_parser_compile_file_path(parser, file, src, ln);
 	else {
+	    StringValue(src);
 	    node = rb_parser_compile_string_path(parser, file, src, ln);
 
 	    if (!node) {
@@ -1507,7 +1508,7 @@ static VALUE
 iseq_s_of(VALUE klass, VALUE body)
 {
     VALUE ret = Qnil;
-    rb_iseq_t *iseq;
+    const rb_iseq_t *iseq;
 
     rb_secure(1);
 
@@ -1519,7 +1520,7 @@ iseq_s_of(VALUE klass, VALUE body)
 	    ret = iseq->self;
 	}
     }
-    else if ((iseq = rb_method_get_iseq(body)) != 0) {
+    else if ((iseq = rb_method_iseq(body)) != 0) {
 	ret = iseq->self;
     }
     return ret;
@@ -1622,7 +1623,7 @@ exception_type2symbol(VALUE type)
       case CATCH_TYPE_REDO:   CONST_ID(id, "redo");   break;
       case CATCH_TYPE_NEXT:   CONST_ID(id, "next");   break;
       default:
-	rb_bug("...");
+	rb_bug("exception_type2symbol: unknown type %d", (int)type);
     }
     return ID2SYM(id);
 }

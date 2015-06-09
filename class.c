@@ -25,7 +25,6 @@
 
 #include "internal.h"
 #include "ruby/st.h"
-#include "method.h"
 #include "constant.h"
 #include "vm_core.h"
 #include <ctype.h>
@@ -242,27 +241,31 @@ rb_class_new(VALUE super)
 }
 
 static void
-clone_method(VALUE klass, ID mid, const rb_method_entry_t *me)
+clone_method(VALUE old_klass, VALUE new_klass, ID mid, const rb_method_entry_t *me)
 {
-    VALUE newiseqval;
-    if (me->def && me->def->type == VM_METHOD_TYPE_ISEQ) {
-	rb_iseq_t *iseq;
+    if (me->def->type == VM_METHOD_TYPE_ISEQ) {
+	VALUE newiseqval;
 	rb_cref_t *new_cref;
-	newiseqval = rb_iseq_clone(me->def->body.iseq_body.iseq->self, klass);
-	GetISeqPtr(newiseqval, iseq);
-	rb_vm_rewrite_cref_stack(me->def->body.iseq_body.cref, me->klass, klass, &new_cref);
-	rb_add_method_iseq(klass, mid, iseq, new_cref, me->flag);
+	newiseqval = rb_iseq_clone(me->def->body.iseq.iseqptr->self, new_klass);
+	rb_vm_rewrite_cref(me->def->body.iseq.cref, old_klass, new_klass, &new_cref);
+	rb_add_method_iseq(new_klass, mid, newiseqval, new_cref, METHOD_ENTRY_VISI(me));
 	RB_GC_GUARD(newiseqval);
     }
     else {
-	rb_method_entry_set(klass, mid, me, me->flag);
+	rb_method_entry_set(new_klass, mid, me, METHOD_ENTRY_VISI(me));
     }
 }
+
+struct clone_method_arg {
+    VALUE new_klass;
+    VALUE old_klass;
+};
 
 static int
 clone_method_i(st_data_t key, st_data_t value, st_data_t data)
 {
-    clone_method((VALUE)data, (ID)key, (const rb_method_entry_t *)value);
+    const struct clone_method_arg *arg = (struct clone_method_arg *)data;
+    clone_method(arg->old_klass, arg->new_klass, (ID)key, (const rb_method_entry_t *)value);
     return ST_CONTINUE;
 }
 
@@ -346,8 +349,11 @@ rb_mod_init_copy(VALUE clone, VALUE orig)
 	st_foreach(RCLASS_CONST_TBL(orig), clone_const_i, (st_data_t)&arg);
     }
     if (RCLASS_M_TBL(orig)) {
+	struct clone_method_arg arg;
+	arg.old_klass = orig;
+	arg.new_klass = clone;
 	RCLASS_M_TBL_INIT(clone);
-	st_foreach(RCLASS_M_TBL(orig), clone_method_i, (st_data_t)clone);
+	st_foreach(RCLASS_M_TBL(orig), clone_method_i, (st_data_t)&arg);
     }
 
     return clone;
@@ -362,7 +368,7 @@ rb_singleton_class_clone(VALUE obj)
 VALUE
 rb_singleton_class_clone_and_attach(VALUE obj, VALUE attach)
 {
-    VALUE klass = RBASIC(obj)->klass;
+    const VALUE klass = RBASIC(obj)->klass;
 
     if (!FL_TEST(klass, FL_SINGLETON))
 	return klass;
@@ -393,7 +399,12 @@ rb_singleton_class_clone_and_attach(VALUE obj, VALUE attach)
 	    rb_singleton_class_attached(clone, attach);
 	}
 	RCLASS_M_TBL_INIT(clone);
-	st_foreach(RCLASS_M_TBL(klass), clone_method_i, (st_data_t)clone);
+	{
+	    struct clone_method_arg arg;
+	    arg.old_klass = klass;
+	    arg.new_klass = clone;
+	    st_foreach(RCLASS_M_TBL(klass), clone_method_i, (st_data_t)&arg);
+	}
 	rb_singleton_class_attached(RBASIC(clone)->klass, clone);
 	FL_SET(clone, FL_SINGLETON);
 
@@ -902,14 +913,12 @@ move_refined_method(st_data_t key, st_data_t value, st_data_t data)
     st_table *tbl = (st_table *) data;
 
     if (me->def->type == VM_METHOD_TYPE_REFINED) {
-	if (me->def->body.orig_me) {
-	    rb_method_entry_t *orig_me = me->def->body.orig_me, *new_me;
-	    me->def->body.orig_me = NULL;
-	    new_me = ALLOC(rb_method_entry_t);
-	    *new_me = *me;
+	if (me->def->body.refined.orig_me) {
+	    const rb_method_entry_t *orig_me = me->def->body.refined.orig_me, *new_me;
+	    me->def->body.refined.orig_me = NULL;
+	    new_me = rb_method_entry_clone(me);
 	    st_add_direct(tbl, key, (st_data_t) new_me);
-	    *me = *orig_me;
-	    xfree(orig_me);
+	    rb_method_entry_copy(me, orig_me);
 	    return ST_CONTINUE;
 	}
 	else {
@@ -1055,26 +1064,20 @@ rb_mod_ancestors(VALUE mod)
     return ary;
 }
 
-#define VISI(x) ((x)&NOEX_MASK)
-#define VISI_CHECK(x,f) (VISI(x) == (f))
-
 static int
-ins_methods_push(ID name, long type, VALUE ary, long visi)
+ins_methods_push(ID name, rb_method_visibility_t visi, VALUE ary, rb_method_visibility_t expected_visi)
 {
-    if (type == -1) return ST_CONTINUE;
+    if (visi == METHOD_VISI_UNDEF) return ST_CONTINUE;
 
-    switch (visi) {
-      case NOEX_PRIVATE:
-      case NOEX_PROTECTED:
-      case NOEX_PUBLIC:
-	visi = (type == visi);
+    switch (expected_visi) {
+      case METHOD_VISI_UNDEF:
+	if (visi != METHOD_VISI_PRIVATE) rb_ary_push(ary, ID2SYM(name));
 	break;
-      default:
-	visi = (type != NOEX_PRIVATE);
+      case METHOD_VISI_PRIVATE:
+      case METHOD_VISI_PROTECTED:
+      case METHOD_VISI_PUBLIC:
+	if (visi == expected_visi) rb_ary_push(ary, ID2SYM(name));
 	break;
-    }
-    if (visi) {
-	rb_ary_push(ary, ID2SYM(name));
     }
     return ST_CONTINUE;
 }
@@ -1082,25 +1085,25 @@ ins_methods_push(ID name, long type, VALUE ary, long visi)
 static int
 ins_methods_i(st_data_t name, st_data_t type, st_data_t ary)
 {
-    return ins_methods_push((ID)name, (long)type, (VALUE)ary, -1); /* everything but private */
+    return ins_methods_push((ID)name, (rb_method_visibility_t)type, (VALUE)ary, METHOD_VISI_UNDEF); /* everything but private */
 }
 
 static int
 ins_methods_prot_i(st_data_t name, st_data_t type, st_data_t ary)
 {
-    return ins_methods_push((ID)name, (long)type, (VALUE)ary, NOEX_PROTECTED);
+    return ins_methods_push((ID)name, (rb_method_visibility_t)type, (VALUE)ary, METHOD_VISI_PROTECTED);
 }
 
 static int
 ins_methods_priv_i(st_data_t name, st_data_t type, st_data_t ary)
 {
-    return ins_methods_push((ID)name, (long)type, (VALUE)ary, NOEX_PRIVATE);
+    return ins_methods_push((ID)name, (rb_method_visibility_t)type, (VALUE)ary, METHOD_VISI_PRIVATE);
 }
 
 static int
 ins_methods_pub_i(st_data_t name, st_data_t type, st_data_t ary)
 {
-    return ins_methods_push((ID)name, (long)type, (VALUE)ary, NOEX_PUBLIC);
+    return ins_methods_push((ID)name, (rb_method_visibility_t)type, (VALUE)ary, METHOD_VISI_PUBLIC);
 }
 
 struct method_entry_arg {
@@ -1113,9 +1116,9 @@ method_entry_i(st_data_t key, st_data_t value, st_data_t data)
 {
     const rb_method_entry_t *me = (const rb_method_entry_t *)value;
     struct method_entry_arg *arg = (struct method_entry_arg *)data;
-    long type;
+    rb_method_visibility_t type;
 
-    if (me && me->def->type == VM_METHOD_TYPE_REFINED) {
+    if (me->def->type == VM_METHOD_TYPE_REFINED) {
 	VALUE klass = me->klass;
 	me = rb_resolve_refined_method(Qnil, me, NULL);
 	if (!me) return ST_CONTINUE;
@@ -1123,12 +1126,12 @@ method_entry_i(st_data_t key, st_data_t value, st_data_t data)
     }
     if (!st_lookup(arg->list, key, 0)) {
 	if (UNDEFINED_METHOD_ENTRY_P(me)) {
-	    type = -1; /* none */
+	    type = METHOD_VISI_UNDEF; /* none */
 	}
 	else {
-	    type = VISI(me->flag);
+	    type = METHOD_ENTRY_VISI(me);
 	}
-	st_add_direct(arg->list, key, type);
+	st_add_direct(arg->list, key, (st_data_t)type);
     }
     return ST_CONTINUE;
 }
@@ -1469,31 +1472,31 @@ rb_obj_singleton_methods(int argc, const VALUE *argv, VALUE obj)
 void
 rb_define_method_id(VALUE klass, ID mid, VALUE (*func)(ANYARGS), int argc)
 {
-    rb_add_method_cfunc(klass, mid, func, argc, NOEX_PUBLIC);
+    rb_add_method_cfunc(klass, mid, func, argc, METHOD_VISI_PUBLIC);
 }
 
 void
 rb_define_method(VALUE klass, const char *name, VALUE (*func)(ANYARGS), int argc)
 {
-    rb_add_method_cfunc(klass, rb_intern(name), func, argc, NOEX_PUBLIC);
+    rb_add_method_cfunc(klass, rb_intern(name), func, argc, METHOD_VISI_PUBLIC);
 }
 
 void
 rb_define_protected_method(VALUE klass, const char *name, VALUE (*func)(ANYARGS), int argc)
 {
-    rb_add_method_cfunc(klass, rb_intern(name), func, argc, NOEX_PROTECTED);
+    rb_add_method_cfunc(klass, rb_intern(name), func, argc, METHOD_VISI_PROTECTED);
 }
 
 void
 rb_define_private_method(VALUE klass, const char *name, VALUE (*func)(ANYARGS), int argc)
 {
-    rb_add_method_cfunc(klass, rb_intern(name), func, argc, NOEX_PRIVATE);
+    rb_add_method_cfunc(klass, rb_intern(name), func, argc, METHOD_VISI_PRIVATE);
 }
 
 void
 rb_undef_method(VALUE klass, const char *name)
 {
-    rb_add_method(klass, rb_intern(name), VM_METHOD_TYPE_UNDEF, 0, NOEX_UNDEF);
+    rb_add_method(klass, rb_intern(name), VM_METHOD_TYPE_UNDEF, 0, METHOD_VISI_UNDEF);
 }
 
 /*!
@@ -1983,6 +1986,13 @@ rb_get_kwargs(VALUE keyword_hash, const ID *table, int required, int optional, V
     }
     return j;
 #undef extract_kwarg
+}
+
+int
+rb_class_has_methods(VALUE c)
+{
+    st_table *mtbl = RCLASS_M_TBL(c);
+    return mtbl && mtbl->num_entries ? TRUE : FALSE;
 }
 
 /*!

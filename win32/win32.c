@@ -3027,26 +3027,19 @@ rb_w32_accept(int s, struct sockaddr *addr, int *addrlen)
 	StartSockets();
     }
     RUBY_CRITICAL({
-	HANDLE h = CreateFile("NUL", 0, 0, NULL, OPEN_ALWAYS, 0, NULL);
-	fd = rb_w32_open_osfhandle((intptr_t)h, O_RDWR|O_BINARY|O_NOINHERIT);
-	if (fd != -1) {
-	    r = accept(TO_SOCKET(s), addr, addrlen);
-	    if (r != INVALID_SOCKET) {
-		SetHandleInformation((HANDLE)r, HANDLE_FLAG_INHERIT, 0);
-		rb_acrt_lowio_lock_fh(fd);
-		_set_osfhnd(fd, r);
-		rb_acrt_lowio_unlock_fh(fd);
-		CloseHandle(h);
+	r = accept(TO_SOCKET(s), addr, addrlen);
+	if (r != INVALID_SOCKET) {
+	    SetHandleInformation((HANDLE)r, HANDLE_FLAG_INHERIT, 0);
+	    fd = rb_w32_open_osfhandle((intptr_t)r, O_RDWR|O_BINARY|O_NOINHERIT);
+	    if (fd != -1)
 		socklist_insert(r, 0);
-	    }
-	    else {
-		errno = map_errno(WSAGetLastError());
-		close(fd);
-		fd = -1;
-	    }
+	    else
+		closesocket(r);
 	}
-	else
-	    CloseHandle(h);
+	else {
+	    errno = map_errno(WSAGetLastError());
+	    fd = -1;
+	}
     });
     return fd;
 }
@@ -6335,7 +6328,7 @@ constat_apply(HANDLE handle, struct constat *s, WCHAR w)
 					csbi.dwSize.X * csbi.dwCursorPosition.Y + csbi.dwCursorPosition.X,
 					pos, &written);
 	    break;
-	  case 2:	/* erase entire line */
+	  case 2:	/* erase entire screen */
 	    pos.X = 0;
 	    pos.Y = 0;
 	    FillConsoleOutputCharacterW(handle, L' ', csbi.dwSize.X * csbi.dwSize.Y, pos, &written);
@@ -6476,12 +6469,16 @@ rb_w32_close(int fd)
 }
 
 static int
-setup_overlapped(OVERLAPPED *ol, int fd)
+setup_overlapped(OVERLAPPED *ol, int fd, int iswrite)
 {
     memset(ol, 0, sizeof(*ol));
     if (!(_osfile(fd) & (FDEV | FPIPE))) {
 	LONG high = 0;
-	DWORD method = _osfile(fd) & FAPPEND ? FILE_END : FILE_CURRENT;
+	/* On mode:a, it can write only FILE_END.
+	 * On mode:a+, though it can write only FILE_END,
+	 * it can read from everywhere.
+	 */
+	DWORD method = ((_osfile(fd) & FAPPEND) && iswrite) ? FILE_END : FILE_CURRENT;
 	DWORD low = SetFilePointer((HANDLE)_osfhnd(fd), 0, &high, method);
 #ifndef INVALID_SET_FILE_POINTER
 #define INVALID_SET_FILE_POINTER ((DWORD)-1)
@@ -6578,7 +6575,7 @@ rb_w32_read(int fd, void *buf, size_t size)
 
     /* if have cancel_io, use Overlapped I/O */
     if (cancel_io) {
-	if (setup_overlapped(&ol, fd)) {
+	if (setup_overlapped(&ol, fd, FALSE)) {
 	    rb_acrt_lowio_unlock_fh(fd);
 	    return -1;
 	}
@@ -6708,7 +6705,7 @@ rb_w32_write(int fd, const void *buf, size_t size)
 
     /* if have cancel_io, use Overlapped I/O */
     if (cancel_io) {
-	if (setup_overlapped(&ol, fd)) {
+	if (setup_overlapped(&ol, fd, TRUE)) {
 	    rb_acrt_lowio_unlock_fh(fd);
 	    return -1;
 	}
@@ -6820,10 +6817,13 @@ rb_w32_write_console(uintptr_t strarg, int fd)
 	len = RSTRING_LEN(str) / sizeof(WCHAR);
 	break;
     }
+    reslen = 0;
     while (len > 0) {
 	long curlen = constat_parse(handle, s, (next = ptr, &next), &len);
+	reslen += next - ptr;
 	if (curlen > 0) {
-	    if (!WriteConsoleW(handle, ptr, curlen, &reslen, NULL)) {
+	    DWORD written;
+	    if (!WriteConsoleW(handle, ptr, curlen, &written, NULL)) {
 		if (GetLastError() == ERROR_CALL_NOT_IMPLEMENTED)
 		    disable = TRUE;
 		reslen = (DWORD)-1L;
@@ -7362,6 +7362,8 @@ rb_w32_pow(double x, double y)
     return r;
 }
 #endif
+
+VALUE (*const rb_f_notimplement_)(int, const VALUE *, VALUE) = rb_f_notimplement;
 
 #if RUBY_MSVCRT_VERSION < 120
 #include "missing/nextafter.c"

@@ -162,6 +162,17 @@ rb_num_to_uint(VALUE val, unsigned int *ret)
 
 #define method_basic_p(klass) rb_method_basic_definition_p(klass, mid)
 
+static VALUE
+compare_with_zero(VALUE num, ID mid)
+{
+    VALUE zero = INT2FIX(0);
+    VALUE r = rb_check_funcall(num, mid, 1, &zero);
+    if (r == Qundef) {
+	rb_cmperr(mid, zero);
+    }
+    return r;
+}
+
 static inline int
 positive_int_p(VALUE num)
 {
@@ -175,7 +186,7 @@ positive_int_p(VALUE num)
 	if (method_basic_p(rb_cBignum))
 	    return BIGNUM_POSITIVE_P(num);
     }
-    return RTEST(rb_funcall(num, mid, 1, INT2FIX(0)));
+    return RTEST(compare_with_zero(num, mid));
 }
 
 static inline int
@@ -191,7 +202,7 @@ negative_int_p(VALUE num)
 	if (method_basic_p(rb_cBignum))
 	    return BIGNUM_NEGATIVE_P(num);
     }
-    return RTEST(rb_funcall(num, mid, 1, INT2FIX(0)));
+    return RTEST(compare_with_zero(num, mid));
 }
 
 int
@@ -635,6 +646,42 @@ static VALUE
 num_to_int(VALUE num)
 {
     return rb_funcallv(num, id_to_i, 0, 0);
+}
+
+/*
+ *  call-seq:
+ *     num.positive? ->  true or false
+ *
+ *  Returns +true+ if +num+ is greater than 0.
+ */
+
+static VALUE
+num_positive_p(VALUE num)
+{
+    const ID mid = '>';
+
+    if (FIXNUM_P(num)) {
+	if (method_basic_p(rb_cFixnum))
+	    return (SIGNED_VALUE)num > (SIGNED_VALUE)INT2FIX(0) ? Qtrue : Qfalse;
+    }
+    else if (RB_TYPE_P(num, T_BIGNUM)) {
+	if (method_basic_p(rb_cBignum))
+	    return BIGNUM_POSITIVE_P(num) && !rb_bigzero_p(num) ? Qtrue : Qfalse;
+    }
+    return compare_with_zero(num, mid);
+}
+
+/*
+ *  call-seq:
+ *     num.negative? ->  true or false
+ *
+ *  Returns +true+ if +num+ is less than 0.
+ */
+
+static VALUE
+num_negative_p(VALUE num)
+{
+    return negative_int_p(num) ? Qtrue : Qfalse;
 }
 
 
@@ -1815,6 +1862,34 @@ flo_truncate(VALUE num)
     }
     val = (long)f;
     return LONG2FIX(val);
+}
+
+/*
+ *  call-seq:
+ *     float.positive? ->  true or false
+ *
+ *  Returns +true+ if +float+ is greater than 0.
+ */
+
+static VALUE
+flo_positive_p(VALUE num)
+{
+    double f = RFLOAT_VALUE(num);
+    return f > 0.0 ? Qtrue : Qfalse;
+}
+
+/*
+ *  call-seq:
+ *     float.negative? ->  true or false
+ *
+ *  Returns +true+ if +float+ is less than 0.
+ */
+
+static VALUE
+flo_negative_p(VALUE num)
+{
+    double f = RFLOAT_VALUE(num);
+    return f < 0.0 ? Qtrue : Qfalse;
 }
 
 /*
@@ -4051,6 +4126,8 @@ Init_Numeric(void)
     rb_define_method(rb_cNumeric, "round", num_round, -1);
     rb_define_method(rb_cNumeric, "truncate", num_truncate, 0);
     rb_define_method(rb_cNumeric, "step", num_step, -1);
+    rb_define_method(rb_cNumeric, "positive?", num_positive_p, 0);
+    rb_define_method(rb_cNumeric, "negative?", num_negative_p, 0);
 
     rb_cInteger = rb_define_class("Integer", rb_cNumeric);
     rb_undef_alloc_func(rb_cInteger);
@@ -4254,6 +4331,8 @@ Init_Numeric(void)
     rb_define_method(rb_cFloat, "finite?",   flo_is_finite_p, 0);
     rb_define_method(rb_cFloat, "next_float", flo_next_float, 0);
     rb_define_method(rb_cFloat, "prev_float", flo_prev_float, 0);
+    rb_define_method(rb_cFloat, "positive?", flo_positive_p, 0);
+    rb_define_method(rb_cFloat, "negative?", flo_negative_p, 0);
 
     id_to = rb_intern("to");
     id_by = rb_intern("by");

@@ -11,7 +11,6 @@
 
 #include "internal.h"
 #include "vm_core.h"
-#include "method.h"
 
 VALUE rb_method_for_self_aref(VALUE name, VALUE arg, rb_insn_func_t func);
 VALUE rb_method_for_self_aset(VALUE name, VALUE arg, rb_insn_func_t func);
@@ -177,9 +176,8 @@ define_aref_method(VALUE nstr, VALUE name, VALUE off)
 {
     rb_control_frame_t *FUNC_FASTCALL(rb_vm_opt_struct_aref)(rb_thread_t *, rb_control_frame_t *);
     VALUE iseqval = rb_method_for_self_aref(name, off, rb_vm_opt_struct_aref);
-    rb_iseq_t *iseq = DATA_PTR(iseqval);
 
-    rb_add_method_iseq(nstr, SYM2ID(name), iseq, NULL, NOEX_PUBLIC);
+    rb_add_method_iseq(nstr, SYM2ID(name), iseqval, NULL, METHOD_VISI_PUBLIC);
     RB_GC_GUARD(iseqval);
 }
 
@@ -188,9 +186,8 @@ define_aset_method(VALUE nstr, VALUE name, VALUE off)
 {
     rb_control_frame_t *FUNC_FASTCALL(rb_vm_opt_struct_aset)(rb_thread_t *, rb_control_frame_t *);
     VALUE iseqval = rb_method_for_self_aset(name, off, rb_vm_opt_struct_aset);
-    rb_iseq_t *iseq = DATA_PTR(iseqval);
 
-    rb_add_method_iseq(nstr, SYM2ID(name), iseq, NULL, NOEX_PUBLIC);
+    rb_add_method_iseq(nstr, SYM2ID(name), iseqval, NULL, METHOD_VISI_PUBLIC);
     RB_GC_GUARD(iseqval);
 }
 

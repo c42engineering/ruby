@@ -238,6 +238,14 @@ module EnvUtil
     def self.diagnostic_reports(signame, cmd, pid, now)
     end
   end
+
+  def self.gc_stress_to_class?
+    unless defined?(@gc_stress_to_class)
+      _, _, status = invoke_ruby(["-e""exit GC.respond_to?(:add_stress_to_class)"])
+      @gc_stress_to_class = status.success?
+    end
+    @gc_stress_to_class
+  end
 end
 
 module Test
@@ -456,7 +464,7 @@ eom
         end
       end #case RUBY_PLATFORM
 
-      def assert_no_memory_leak(args, prepare, code, message=nil, limit: 1.5, rss: false, **opt)
+      def assert_no_memory_leak(args, prepare, code, message=nil, limit: 2.0, rss: false, **opt)
         require_relative 'memory_status'
         token = "\e[7;1m#{$$.to_s}:#{Time.now.strftime('%s.%L')}:#{rand(0x10000).to_s(16)}:\e[m"
         token_dump = token.dump

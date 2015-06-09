@@ -199,10 +199,6 @@ enum ruby_tag_type {
 #define TAG_FATAL	RUBY_TAG_FATAL
 #define TAG_MASK	RUBY_TAG_MASK
 
-#define SCOPE_TEST(f)  (CREF_VISI(rb_vm_cref()) & (f))
-#define SCOPE_CHECK(f) (CREF_VISI(rb_vm_cref()) == (f))
-#define SCOPE_SET(f)   (CREF_VISI_SET(rb_vm_cref(), (f)))
-
 /* CREF operators */
 
 #define NODE_FL_CREF_PUSHED_BY_EVAL_ (((VALUE)1)<<15)
@@ -232,16 +228,20 @@ CREF_NEXT_SET(rb_cref_t *cref, const rb_cref_t *next_cref)
     RB_OBJ_WRITE(cref, &cref->next, next_cref);
 }
 
-static inline long
-CREF_VISI(const rb_cref_t *cref)
+static inline const rb_scope_visibility_t *
+CREF_SCOPE_VISI(const rb_cref_t *cref)
 {
-    return (long)cref->visi;
+    return &cref->scope_visi;
 }
 
 static inline void
-CREF_VISI_SET(rb_cref_t *cref, long v)
+CREF_SCOPE_VISI_COPY(rb_cref_t *dst_cref, const rb_cref_t *src_cref)
 {
-    cref->visi = v;
+    const rb_scope_visibility_t *src = &src_cref->scope_visi;
+    rb_scope_visibility_t *dst = &dst_cref->scope_visi;
+
+    dst->method_visi = src->method_visi;
+    dst->module_func = src->module_func;
 }
 
 static inline VALUE
@@ -310,7 +310,7 @@ NORETURN(void rb_fiber_start(void));
 
 NORETURN(void rb_print_undef(VALUE, ID, int));
 NORETURN(void rb_print_undef_str(VALUE, VALUE));
-NORETURN(void rb_print_inaccessible(VALUE, ID, int));
+NORETURN(void rb_print_inaccessible(VALUE, ID, rb_method_visibility_t));
 NORETURN(void rb_vm_localjump_error(const char *,VALUE, int));
 NORETURN(void rb_vm_jump_tag_but_local_jump(int));
 NORETURN(void rb_raise_method_missing(rb_thread_t *th, int argc, const VALUE *argv,

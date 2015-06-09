@@ -36,6 +36,8 @@ control_frame_dump(rb_thread_t *th, rb_control_frame_t *cfp)
     const char *magic, *iseq_name = "-", *selfstr = "-", *biseq_name = "-";
     VALUE tmp;
 
+    const rb_method_entry_t *me;
+
     if (cfp->block_iseq != 0 && !RUBY_VM_IFUNC_P(cfp->block_iseq)) {
 	biseq_name = "";	/* RSTRING(cfp->block_iseq->location.label)->ptr; */
     }
@@ -105,8 +107,8 @@ control_frame_dump(rb_thread_t *th, rb_control_frame_t *cfp)
 	    }
 	}
     }
-    else if (cfp->me) {
-	iseq_name = rb_id2name(cfp->me->def->original_id);
+    else if ((me = rb_vm_frame_method_entry(cfp)) != NULL) {
+	iseq_name = rb_id2name(me->def->original_id);
 	snprintf(posbuf, MAX_POSBUF, ":%s", iseq_name);
 	line = -1;
     }
@@ -690,7 +692,7 @@ rb_print_backtrace(void)
 #if HAVE_BACKTRACE
 #define MAX_NATIVE_TRACE 1024
     static void *trace[MAX_NATIVE_TRACE];
-    int n = backtrace(trace, MAX_NATIVE_TRACE);
+    int n = (int)backtrace(trace, MAX_NATIVE_TRACE);
 #if defined(USE_ELF) && defined(HAVE_DLADDR)
     rb_dump_backtrace_with_lines(n, trace);
 #else

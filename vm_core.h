@@ -141,6 +141,16 @@ typedef struct rb_call_info_kw_arg_struct {
     VALUE keywords[1];
 } rb_call_info_kw_arg_t;
 
+enum method_missing_reason {
+    MISSING_NOENTRY   = 0x00,
+    MISSING_PRIVATE   = 0x01,
+    MISSING_PROTECTED = 0x02,
+    MISSING_VCALL     = 0x04,
+    MISSING_SUPER     = 0x08,
+    MISSING_MISSING   = 0x10,
+    MISSING_NONE      = 0x20
+};
+
 /* rb_call_info_t contains calling information including inline cache */
 typedef struct rb_call_info_struct {
     /* fixed at compile time */
@@ -167,7 +177,7 @@ typedef struct rb_call_info_struct {
     union {
 	int opt_pc; /* used by iseq */
 	int index; /* used by ivar */
-	int missing_reason; /* used by method_missing */
+	enum method_missing_reason method_missing_reason; /* used by method_missing */
 	int inc_sp; /* used by cfunc */
     } aux;
 
@@ -440,8 +450,6 @@ typedef struct rb_vm_struct {
     VALUE verbose, debug, orig_progname, progname;
     VALUE coverages;
 
-    struct unlinked_method_entry_list_entry *unlinked_method_entry_list;
-
     VALUE defined_module_hash;
 
 #if defined(ENABLE_VM_OBJSPACE) && ENABLE_VM_OBJSPACE
@@ -513,10 +521,9 @@ typedef struct rb_control_frame_struct {
     VALUE *ep;			/* cfp[6] / block[2] */
     rb_iseq_t *block_iseq;	/* cfp[7] / block[3] */
     VALUE proc;			/* cfp[8] / block[4] */
-    const rb_method_entry_t *me;/* cfp[9] */
 
 #if VM_DEBUG_BP_CHECK
-    VALUE *bp_check;		/* cfp[10] */
+    VALUE *bp_check;		/* cfp[9] */
 #endif
 } rb_control_frame_t;
 
@@ -716,7 +723,7 @@ typedef struct rb_thread_struct {
     rb_ensure_list_t *ensure_list;
 
     /* misc */
-    int method_missing_reason;
+    enum method_missing_reason method_missing_reason;
     int abort_on_exception;
 #ifdef USE_SIGALTSTACK
     void *altstack;
@@ -844,6 +851,7 @@ enum vm_svar_index {
 #define VM_FRAME_MAGIC_EVAL   0x91
 #define VM_FRAME_MAGIC_LAMBDA 0xa1
 #define VM_FRAME_MAGIC_RESCUE 0xb1
+#define VM_FRAME_MAGIC_DUMMY  0xc1
 #define VM_FRAME_MAGIC_MASK_BITS 8
 #define VM_FRAME_MAGIC_MASK   (~(~(VALUE)0<<VM_FRAME_MAGIC_MASK_BITS))
 
@@ -920,7 +928,7 @@ rb_block_t *rb_vm_control_frame_block_ptr(const rb_control_frame_t *cfp);
 
 /* VM related object allocate functions */
 VALUE rb_thread_alloc(VALUE klass);
-VALUE rb_proc_wrap(VALUE klass, rb_proc_t *); /* may use with rb_proc_alloc */
+VALUE rb_proc_alloc(VALUE klass);
 VALUE rb_binding_alloc(VALUE klass);
 
 /* for debug */
@@ -953,8 +961,6 @@ void rb_vm_gvl_destroy(rb_vm_t *vm);
 VALUE rb_vm_call(rb_thread_t *th, VALUE recv, VALUE id, int argc,
 		 const VALUE *argv, const rb_method_entry_t *me,
 		 VALUE defined_class);
-void rb_unlink_method_entry(rb_method_entry_t *me);
-void rb_gc_mark_unlinked_live_method_entries(void *pvm);
 
 void rb_thread_start_timer_thread(void);
 void rb_thread_stop_timer_thread(int);
@@ -999,7 +1005,9 @@ void rb_gc_mark_machine_stack(rb_thread_t *th);
 
 int rb_autoloading_value(VALUE mod, ID id, VALUE* value);
 
-void rb_vm_rewrite_cref_stack(rb_cref_t *node, VALUE old_klass, VALUE new_klass, rb_cref_t **new_cref_ptr);
+void rb_vm_rewrite_cref(rb_cref_t *node, VALUE old_klass, VALUE new_klass, rb_cref_t **new_cref_ptr);
+
+const rb_method_entry_t *rb_vm_frame_method_entry(const rb_control_frame_t *cfp);
 
 #define sysstack_error GET_VM()->special_exceptions[ruby_error_sysstack]
 

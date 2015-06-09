@@ -11,6 +11,9 @@
 
 **********************************************************************/
 
+#define rb_data_object_alloc rb_data_object_alloc
+#define rb_data_typed_object_alloc rb_data_typed_object_alloc
+
 #include "internal.h"
 #include "ruby/st.h"
 #include "ruby/re.h"
@@ -30,7 +33,7 @@
 #include <sys/types.h>
 #include <assert.h>
 
-#undef rb_data_object_alloc
+#undef rb_data_object_wrap
 
 #ifndef __has_feature
 # define __has_feature(x) 0
@@ -298,6 +301,10 @@ static ruby_gc_params_t gc_params = {
 #define MALLOC_ALLOCATED_SIZE_CHECK 0
 #endif
 
+#ifndef GC_DEBUG_STRESS_TO_CLASS
+#define GC_DEBUG_STRESS_TO_CLASS 0
+#endif
+
 typedef enum {
     GPR_FLAG_NONE               = 0x000,
     /* major reason */
@@ -396,6 +403,7 @@ typedef struct RVALUE {
 	    struct vm_throw_data throw_data;
 	    struct vm_ifunc ifunc;
 	    struct MEMO memo;
+	    struct rb_method_entry_struct ment;
 	} imemo;
 	struct {
 	    struct RBasic basic;
@@ -609,6 +617,10 @@ typedef struct rb_objspace {
     } rincgc;
 #endif
 #endif /* USE_RGENGC */
+
+#if GC_DEBUG_STRESS_TO_CLASS
+    VALUE stress_to_class;
+#endif
 } rb_objspace_t;
 
 
@@ -712,6 +724,11 @@ VALUE *ruby_initial_gc_stress_ptr = &ruby_initial_gc_stress;
 #define global_list		objspace->global_list
 #define ruby_gc_stressful	objspace->flags.gc_stressful
 #define ruby_gc_stress_mode     objspace->gc_stress_mode
+#if GC_DEBUG_STRESS_TO_CLASS
+#define stress_to_class         objspace->stress_to_class
+#else
+#define stress_to_class         0
+#endif
 
 #define is_marking(objspace)             ((objspace)->flags.stat == gc_stat_marking)
 #define is_sweeping(objspace)            ((objspace)->flags.stat == gc_stat_sweeping)
@@ -1671,6 +1688,16 @@ newobj_of(VALUE klass, VALUE flags, VALUE v1, VALUE v2, VALUE v3)
     rb_objspace_t *objspace = &rb_objspace;
     VALUE obj;
 
+#if GC_DEBUG_STRESS_TO_CLASS
+    if (UNLIKELY(stress_to_class)) {
+	long i, cnt = RARRAY_LEN(stress_to_class);
+	const VALUE *ptr = RARRAY_CONST_PTR(stress_to_class);
+	for (i = 0; i < cnt; ++i) {
+	    if (klass == ptr[i]) rb_memerror();
+	}
+    }
+#endif
+
     if (UNLIKELY(during_gc || ruby_gc_stressful)) {
 	if (during_gc) {
 	    dont_gc = 1;
@@ -1806,31 +1833,42 @@ rb_imemo_new_debug(enum imemo_type type, VALUE v1, VALUE v2, VALUE v3, VALUE v0,
 #endif
 
 VALUE
-rb_data_object_alloc(VALUE klass, void *datap, RUBY_DATA_FUNC dmark, RUBY_DATA_FUNC dfree)
+rb_data_object_wrap(VALUE klass, void *datap, RUBY_DATA_FUNC dmark, RUBY_DATA_FUNC dfree)
 {
     if (klass) Check_Type(klass, T_CLASS);
     return newobj_of(klass, T_DATA, (VALUE)dmark, (VALUE)dfree, (VALUE)datap);
 }
 
+#undef rb_data_object_alloc
+RUBY_ALIAS_FUNCTION(rb_data_object_alloc(VALUE klass, void *datap,
+					 RUBY_DATA_FUNC dmark, RUBY_DATA_FUNC dfree),
+		    rb_data_object_wrap, (klass, datap, dmark, dfree));
+
+
 VALUE
 rb_data_object_zalloc(VALUE klass, size_t size, RUBY_DATA_FUNC dmark, RUBY_DATA_FUNC dfree)
 {
-    VALUE obj = rb_data_object_alloc(klass, 0, dmark, dfree);
+    VALUE obj = rb_data_object_wrap(klass, 0, dmark, dfree);
     DATA_PTR(obj) = xcalloc(1, size);
     return obj;
 }
 
 VALUE
-rb_data_typed_object_alloc(VALUE klass, void *datap, const rb_data_type_t *type)
+rb_data_typed_object_wrap(VALUE klass, void *datap, const rb_data_type_t *type)
 {
     if (klass) Check_Type(klass, T_CLASS);
     return newobj_of(klass, T_DATA | (type->flags & ~T_MASK), (VALUE)type, (VALUE)1, (VALUE)datap);
 }
 
+#undef rb_data_typed_object_alloc
+RUBY_ALIAS_FUNCTION(rb_data_typed_object_alloc(VALUE klass, void *datap,
+					       const rb_data_type_t *type),
+		    rb_data_typed_object_wrap, (klass, datap, type));
+
 VALUE
 rb_data_typed_object_zalloc(VALUE klass, size_t size, const rb_data_type_t *type)
 {
-    VALUE obj = rb_data_typed_object_alloc(klass, 0, type);
+    VALUE obj = rb_data_typed_object_wrap(klass, 0, type);
     DATA_PTR(obj) = xcalloc(1, size);
     return obj;
 }
@@ -1886,21 +1924,10 @@ is_pointer_to_heap(rb_objspace_t *objspace, void *ptr)
     return FALSE;
 }
 
-static int
-free_method_entry_i(st_data_t key, st_data_t value, st_data_t data)
-{
-    rb_method_entry_t *me = (rb_method_entry_t *)value;
-    if (!me->mark) {
-	rb_free_method_entry(me);
-    }
-    return ST_CONTINUE;
-}
-
 static void
 rb_free_m_tbl(st_table *tbl)
 {
     if (tbl) {
-	st_foreach(tbl, free_method_entry_i, 0);
 	st_free_table(tbl);
     }
 }
@@ -2069,7 +2096,6 @@ obj_free(rb_objspace_t *objspace, VALUE obj)
 	break;
       case T_RATIONAL:
       case T_COMPLEX:
-      case T_IMEMO:
 	break;
       case T_ICLASS:
 	/* Basically , T_ICLASS shares table with the module */
@@ -2109,6 +2135,14 @@ obj_free(rb_objspace_t *objspace, VALUE obj)
       case T_SYMBOL:
 	{
             rb_gc_free_dsymbol(obj);
+	}
+	break;
+
+      case T_IMEMO:
+	{
+	    if (imemo_type(obj) == imemo_ment) {
+		rb_free_method_entry(&RANY(obj)->as.imemo.ment);
+	    }
 	}
 	break;
 
@@ -3369,11 +3403,6 @@ gc_sweep_start(rb_objspace_t *objspace)
 
     gc_stat_transition(objspace, gc_stat_sweeping);
 
-    /* sweep unlinked method entries */
-    if (GET_VM()->unlinked_method_entry_list) {
-	rb_sweep_method_entry(GET_VM());
-    }
-
     /* sometimes heap_allocatable_pages is not 0 */
     heap_pages_swept_slots = heap_allocatable_pages * HEAP_OBJ_LIMIT;
     total_limit_slot = objspace_available_slots(objspace);
@@ -3826,42 +3855,34 @@ rb_gc_mark_values(long n, const VALUE *values)
 
 #define rb_gc_mark_locations(start, end) gc_mark_locations(objspace, (start), (end))
 
-struct mark_tbl_arg {
-    rb_objspace_t *objspace;
-};
-
 static int
 mark_entry(st_data_t key, st_data_t value, st_data_t data)
 {
-    struct mark_tbl_arg *arg = (void*)data;
-    gc_mark(arg->objspace, (VALUE)value);
+    rb_objspace_t *objspace = (rb_objspace_t *)data;
+    gc_mark(objspace, (VALUE)value);
     return ST_CONTINUE;
 }
 
 static void
 mark_tbl(rb_objspace_t *objspace, st_table *tbl)
 {
-    struct mark_tbl_arg arg;
     if (!tbl || tbl->num_entries == 0) return;
-    arg.objspace = objspace;
-    st_foreach(tbl, mark_entry, (st_data_t)&arg);
+    st_foreach(tbl, mark_entry, (st_data_t)objspace);
 }
 
 static int
 mark_key(st_data_t key, st_data_t value, st_data_t data)
 {
-    struct mark_tbl_arg *arg = (void*)data;
-    gc_mark(arg->objspace, (VALUE)key);
+    rb_objspace_t *objspace = (rb_objspace_t *)data;
+    gc_mark(objspace, (VALUE)key);
     return ST_CONTINUE;
 }
 
 static void
 mark_set(rb_objspace_t *objspace, st_table *tbl)
 {
-    struct mark_tbl_arg arg;
     if (!tbl) return;
-    arg.objspace = objspace;
-    st_foreach(tbl, mark_key, (st_data_t)&arg);
+    st_foreach(tbl, mark_key, (st_data_t)objspace);
 }
 
 void
@@ -3873,19 +3894,18 @@ rb_mark_set(st_table *tbl)
 static int
 mark_keyvalue(st_data_t key, st_data_t value, st_data_t data)
 {
-    struct mark_tbl_arg *arg = (void*)data;
-    gc_mark(arg->objspace, (VALUE)key);
-    gc_mark(arg->objspace, (VALUE)value);
+    rb_objspace_t *objspace = (rb_objspace_t *)data;
+
+    gc_mark(objspace, (VALUE)key);
+    gc_mark(objspace, (VALUE)value);
     return ST_CONTINUE;
 }
 
 static void
 mark_hash(rb_objspace_t *objspace, st_table *tbl)
 {
-    struct mark_tbl_arg arg;
     if (!tbl) return;
-    arg.objspace = objspace;
-    st_foreach(tbl, mark_keyvalue, (st_data_t)&arg);
+    st_foreach(tbl, mark_keyvalue, (st_data_t)objspace);
 }
 
 void
@@ -3901,44 +3921,41 @@ mark_method_entry(rb_objspace_t *objspace, const rb_method_entry_t *me)
 
     gc_mark(objspace, me->klass);
 
-  again:
-    if (!def) return;
-
     switch (def->type) {
       case VM_METHOD_TYPE_ISEQ:
-	gc_mark(objspace, def->body.iseq_body.iseq->self);
-	gc_mark(objspace, (VALUE)def->body.iseq_body.cref);
-	break;
-      case VM_METHOD_TYPE_BMETHOD:
-	gc_mark(objspace, def->body.proc);
+	gc_mark(objspace, def->body.iseq.iseqptr->self);
+	gc_mark(objspace, (VALUE)def->body.iseq.cref);
 	break;
       case VM_METHOD_TYPE_ATTRSET:
       case VM_METHOD_TYPE_IVAR:
 	gc_mark(objspace, def->body.attr.location);
 	break;
-      case VM_METHOD_TYPE_REFINED:
-	if (def->body.orig_me) {
-	    def = def->body.orig_me->def;
-	    goto again;
-	}
+      case VM_METHOD_TYPE_BMETHOD:
+	gc_mark(objspace, def->body.proc);
 	break;
-      default:
-	break; /* ignore */
+      case VM_METHOD_TYPE_ALIAS:
+	gc_mark(objspace, (VALUE)def->body.alias.original_me);
+	return;
+      case VM_METHOD_TYPE_REFINED:
+	gc_mark(objspace, (VALUE)def->body.refined.orig_me);
+	break;
+      case VM_METHOD_TYPE_CFUNC:
+      case VM_METHOD_TYPE_ZSUPER:
+      case VM_METHOD_TYPE_MISSING:
+      case VM_METHOD_TYPE_OPTIMIZED:
+      case VM_METHOD_TYPE_UNDEF:
+      case VM_METHOD_TYPE_NOTIMPLEMENTED:
+	break;
     }
-}
-
-void
-rb_mark_method_entry(const rb_method_entry_t *me)
-{
-    mark_method_entry(&rb_objspace, me);
 }
 
 static int
 mark_method_entry_i(st_data_t key, st_data_t value, st_data_t data)
 {
-    const rb_method_entry_t *me = (const rb_method_entry_t *)value;
-    struct mark_tbl_arg *arg = (void*)data;
-    mark_method_entry(arg->objspace, me);
+    VALUE me = (VALUE)value;
+    rb_objspace_t *objspace = (rb_objspace_t *)data;
+
+    gc_mark(objspace, me);
     return ST_CONTINUE;
 }
 
@@ -3946,9 +3963,7 @@ static void
 mark_m_tbl(rb_objspace_t *objspace, struct st_table *tbl)
 {
     if (tbl) {
-	struct mark_tbl_arg arg;
-	arg.objspace = objspace;
-	st_foreach(tbl, mark_method_entry_i, (st_data_t)&arg);
+	st_foreach(tbl, mark_method_entry_i, (st_data_t)objspace);
     }
 }
 
@@ -3956,19 +3971,18 @@ static int
 mark_const_entry_i(st_data_t key, st_data_t value, st_data_t data)
 {
     const rb_const_entry_t *ce = (const rb_const_entry_t *)value;
-    struct mark_tbl_arg *arg = (void*)data;
-    gc_mark(arg->objspace, ce->value);
-    gc_mark(arg->objspace, ce->file);
+    rb_objspace_t *objspace = (rb_objspace_t *)data;
+
+    gc_mark(objspace, ce->value);
+    gc_mark(objspace, ce->file);
     return ST_CONTINUE;
 }
 
 static void
 mark_const_tbl(rb_objspace_t *objspace, st_table *tbl)
 {
-    struct mark_tbl_arg arg;
     if (!tbl) return;
-    arg.objspace = objspace;
-    st_foreach(tbl, mark_const_entry_i, (st_data_t)&arg);
+    st_foreach(tbl, mark_const_entry_i, (st_data_t)objspace);
 }
 
 #if STACK_GROW_DIRECTION < 0
@@ -4250,7 +4264,7 @@ gc_mark_children(rb_objspace_t *objspace, VALUE obj)
 	    gc_mark(objspace, RANY(obj)->as.imemo.cref.refinements);
 	    return;
 	  case imemo_svar:
-	    gc_mark(objspace, (VALUE)RANY(obj)->as.imemo.svar.cref);
+	    gc_mark(objspace, RANY(obj)->as.imemo.svar.cref_or_me);
 	    gc_mark(objspace, RANY(obj)->as.imemo.svar.lastline);
 	    gc_mark(objspace, RANY(obj)->as.imemo.svar.backref);
 	    gc_mark(objspace, RANY(obj)->as.imemo.svar.others);
@@ -4265,6 +4279,9 @@ gc_mark_children(rb_objspace_t *objspace, VALUE obj)
 	    gc_mark(objspace, RANY(obj)->as.imemo.memo.v1);
 	    gc_mark(objspace, RANY(obj)->as.imemo.memo.v2);
 	    gc_mark_maybe(objspace, RANY(obj)->as.imemo.memo.u3.value);
+	    return;
+	  case imemo_ment:
+	    mark_method_entry(objspace, &RANY(obj)->as.imemo.ment);
 	    return;
 	  default:
 	    rb_bug("T_IMEMO: unreachable");
@@ -4551,12 +4568,7 @@ gc_mark_roots(rb_objspace_t *objspace, const char **categoryp)
     MARK_CHECKPOINT("global_tbl");
     rb_gc_mark_global_tbl();
 
-    /* mark generic instance variables for special constants */
-    MARK_CHECKPOINT("generic_ivars");
-    rb_mark_generic_ivar_tbl();
-
-    MARK_CHECKPOINT("live_method_entries");
-    rb_gc_mark_unlinked_live_method_entries(th->vm);
+    if (stress_to_class) rb_gc_mark(stress_to_class);
 
     MARK_CHECKPOINT("finish");
 #undef MARK_CHECKPOINT
@@ -8859,7 +8871,6 @@ obj_info(VALUE obj)
     snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s @%s:%d", buff, RANY(obj)->file, RANY(obj)->line);
 #endif
 
-#ifdef HAVE_VA_ARGS_MACRO
     switch (type) {
       case T_NODE:
 	snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s (%s)", buff,
@@ -8872,50 +8883,54 @@ obj_info(VALUE obj)
 		 (int)RARRAY_LEN(obj));
 	break;
       case T_STRING: {
-	  snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s %s", buff, RSTRING_PTR(obj));
-	  break;
+	snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s %s", buff, RSTRING_PTR(obj));
+	break;
       }
       case T_CLASS: {
-	  VALUE class_path = rb_class_path_cached(obj);
-	  if (!NIL_P(class_path)) {
-	      snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s %s", buff, RSTRING_PTR(class_path));
-	  }
-	  break;
+	VALUE class_path = rb_class_path_cached(obj);
+	if (!NIL_P(class_path)) {
+	    snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s %s", buff, RSTRING_PTR(class_path));
+	}
+	break;
       }
       case T_DATA: {
-	  const char * const type_name = rb_objspace_data_type_name(obj);
-	  if (type_name && strcmp(type_name, "iseq") == 0) {
-	      rb_iseq_t *iseq;
-	      GetISeqPtr(obj, iseq);
-	      if (iseq->location.label) {
-		  snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s %s@%s:%d", buff,
-			   RSTRING_PTR(iseq->location.label), RSTRING_PTR(iseq->location.path), (int)iseq->location.first_lineno);
-	      }
-	  }
-	  else if (type_name) {
-		  snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s %s", buff, type_name);
-	  }
-	  break;
+	const char * const type_name = rb_objspace_data_type_name(obj);
+	if (type_name && strcmp(type_name, "iseq") == 0) {
+	    rb_iseq_t *iseq;
+	    GetISeqPtr(obj, iseq);
+	    if (iseq->location.label) {
+		snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s %s@%s:%d", buff,
+			 RSTRING_PTR(iseq->location.label), RSTRING_PTR(iseq->location.path), (int)iseq->location.first_lineno);
+	    }
+	}
+	else if (type_name) {
+	    snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s %s", buff, type_name);
+	}
+	break;
       }
       case T_IMEMO: {
-	  const char *imemo_name;
-	  switch (imemo_type(obj)) {
+	const char *imemo_name;
+	switch (imemo_type(obj)) {
 #define IMEMO_NAME(x) case imemo_##x: imemo_name = #x; break;
-	      IMEMO_NAME(none);
-	      IMEMO_NAME(cref);
-	      IMEMO_NAME(svar);
-	      IMEMO_NAME(throw_data);
-	      IMEMO_NAME(ifunc);
-	      IMEMO_NAME(memo);
-	    default: rb_bug("unknown IMEMO");
+	    IMEMO_NAME(none);
+	    IMEMO_NAME(cref);
+	    IMEMO_NAME(svar);
+	    IMEMO_NAME(throw_data);
+	    IMEMO_NAME(ifunc);
+	    IMEMO_NAME(memo);
+	    IMEMO_NAME(ment);
+	  default: rb_bug("unknown IMEMO");
 #undef IMEMO_NAME
-	  }
-	  snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s %s", buff, imemo_name);
+	}
+	snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s %s", buff, imemo_name);
+	if (imemo_type(obj) == imemo_ment) {
+	    const rb_method_entry_t *me = &RANY(obj)->as.imemo.ment;
+	    snprintf(buff, OBJ_INFO_BUFFERS_SIZE, "%s (called_id: %s, type: %d)", buff, rb_id2name(me->called_id), me->def->type);
+	}
       }
       default:
 	break;
     }
-#endif
 #undef TF
 #undef C
 
@@ -8929,6 +8944,17 @@ obj_info(VALUE obj)
     return obj_type_name(obj);
 }
 #endif
+
+const char *
+rb_obj_info(VALUE obj)
+{
+    if (!rb_special_const_p(obj)) {
+	return obj_info(obj);
+    }
+    else {
+	return obj_type_name(obj);
+    }
+}
 
 #if GC_DEBUG
 
@@ -8978,6 +9004,37 @@ rb_gcdebug_sentinel(VALUE obj, const char *name)
 }
 
 #endif /* GC_DEBUG */
+
+#if GC_DEBUG_STRESS_TO_CLASS
+static VALUE
+rb_gcdebug_add_stress_to_class(int argc, VALUE *argv, VALUE self)
+{
+    rb_objspace_t *objspace = &rb_objspace;
+
+    if (!stress_to_class) {
+	stress_to_class = rb_ary_tmp_new(argc);
+    }
+    rb_ary_cat(stress_to_class, argv, argc);
+    return self;
+}
+
+static VALUE
+rb_gcdebug_remove_stress_to_class(int argc, VALUE *argv, VALUE self)
+{
+    rb_objspace_t *objspace = &rb_objspace;
+    int i;
+
+    if (stress_to_class) {
+	for (i = 0; i < argc; ++i) {
+	    rb_ary_delete_same(stress_to_class, argv[i]);
+	}
+	if (RARRAY_LEN(stress_to_class) == 0) {
+	    stress_to_class = 0;
+	}
+    }
+    return Qnil;
+}
+#endif
 
 /*
  * Document-module: ObjectSpace
@@ -9122,6 +9179,11 @@ Init_GC(void)
 #if MALLOC_ALLOCATED_SIZE
     rb_define_singleton_method(rb_mGC, "malloc_allocated_size", gc_malloc_allocated_size, 0);
     rb_define_singleton_method(rb_mGC, "malloc_allocations", gc_malloc_allocations, 0);
+#endif
+
+#if GC_DEBUG_STRESS_TO_CLASS
+    rb_define_singleton_method(rb_mGC, "add_stress_to_class", rb_gcdebug_add_stress_to_class, -1);
+    rb_define_singleton_method(rb_mGC, "remove_stress_to_class", rb_gcdebug_remove_stress_to_class, -1);
 #endif
 
     /* ::GC::OPTS, which shows GC build options */

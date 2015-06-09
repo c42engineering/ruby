@@ -1,3 +1,1012 @@
+Tue Jun  9 11:45:00 2015  Marc-Andre Lafortune  <ruby-core@marc-andre.ca>
+
+	* lib/matrix.rb: Simplify and optimize EratosthenesSieve
+	  based on patch by Ajay Kumar. [Fixes GH-921]
+
+Mon Jun  8 05:09:58 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* gc.c (obj_info): print method id for T_IMEMO/ment.
+
+Sun Jun  7 07:05:43 2015  Kazuki Tanaka  <gogotanaka@ruby-lang.org>
+
+	* Move test cases from test/ruby/test_complex.rb to test/test_cmath.rb
+
+Sat Jun  6 18:23:41 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h: back to share rb_method_definition_t by
+	  rb_method_entry_t.
+
+	  r50728 changed sharing `def's to isolating `def's
+	  on alias and so on. However, this change conflicts
+	  future improvement plan. So I change back to sharing approach.
+
+	* method.h: move rb_method_definition_t::flags to
+	  rb_method_entry_t::attr::flags.
+
+	  rb_method_entry_t::attr is union with VALUE because this field
+	  should have same size of VALUE. rb_method_entry_t is T_IMEMO).
+
+	  And also add the following access macros to it's fields.
+
+	  * METHOD_ENTRY_VISI(me)
+	  * METHOD_ENTRY_BASIC(me)
+	  * METHOD_ENTRY_SAFE(me)
+
+	* vm_method.c (rb_method_definition_addref): added instead of
+	  rb_method_definition_clone().
+
+	  Do not create new definition, but increment alias_count.
+
+	* class.c (clone_method): catch up this fix.
+
+	* class.c (method_entry_i): ditto.
+
+	* proc.c (mnew_internal): ditto.
+
+	* proc.c (mnew_missing): ditto.
+
+	* vm_eval.c: ditto.
+
+	* vm_insnhelper.c: ditto.
+
+	* vm_method.c: ditto.
+
+Sat Jun  6 15:59:38 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* class.c: ins_methods_push() needs rb_method_visibility_t type on
+	  2nd arg.
+
+Sat Jun  6 15:05:47 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* class.c (ins_methods_push): Change type and name of parameters
+	  to make more clear.
+
+Sat Jun  6 08:52:13 2015  Eric Wong  <e@80x24.org>
+
+	* test/socket/test_nonblock.rb: try to avoid EMSGSIZE
+	  [ruby-core:69466]
+
+Sat Jun  6 07:58:30 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* gc.c: remove struct mark_tbl_arg and pass objspace directly
+	  to avoid indirect access overhead.
+
+Sat Jun  6 07:08:45 2015  Eric Wong  <e@80x24.org>
+
+	* ext/socket/ancdata.c (bsock_sendmsg_internal): drop redundant assignment
+
+Sat Jun  6 01:00:06 2015  Naohisa Goto  <ngotogenome@gmail.com>
+
+	* ext/socket/ancdata.c (bsock_sendmsg_internal): all arguments are
+	  parsed even on systems without HAVE_STRUCT_MSGHDR_MSG_CONTROL
+	  to prevent SEGV caused by passing Qnil to RARRAY_LENINT and
+	  to preserve behavior before r50776.
+	  [Bug #11224] [ruby-core:69468] [Bug #11225] [ruby-core:69469]
+
+Fri Jun  5 22:37:42 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* class.c (ins_methods_push): change 3rd parameter's type
+	  from long to rb_method_visibility_t.
+
+	* class.c (ins_methods_i): catch up this fix.
+
+	* class.c (method_entry_i): cast to st_data_t instead of `long'.
+
+Fri Jun  5 20:37:10 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* internal.h: move definition of rb_cref_t to method.h.
+
+	* eval_intern.h: move definition of rb_scope_visibility_t
+	  to method.h.
+
+	* method.h: change rb_cref_t::scope_visi from VALUE to
+	  rb_scope_visibility_t.
+	  [Bug #11219]
+
+	* vm.c (vm_cref_new): accept rb_method_visibility_t directly.
+
+	* vm_insnhelper.c (rb_vm_rewrite_cref): don't use 0,
+	  but METHOD_VISI_UNDEF.
+
+	* vm_method.c (rb_scope_visibility_set): don't need to use cast.
+
+	* vm_method.c (rb_scope_module_func_set): ditto.
+
+Fri Jun  5 17:27:30 2015  Eric Wong  <e@80x24.org>
+
+	* ext/socket/ancdata.c (bsock_sendmsg_internal): avoid msg_control
+	  ptr if msg_controllen is zero to fix portability problems.
+
+Fri Jun  5 09:17:45 2015  Eric Wong  <e@80x24.org>
+
+	* ext/socket/ancdata.c (bsock_sendmsg_internal): fix build error
+	  from r50776
+
+Fri Jun  5 07:05:58 2015  Eric Wong  <e@80x24.org>
+
+	* io.c (sym_wait_readable, sym_wait_writable): declare
+	  (io_getpartial): use sym_wait_readable
+	  (io_write_nonblock): use sym_wait_writable
+	  (Init_IO): initialize sym_wait_*able
+
+Fri Jun  5 06:43:00 2015  Eric Wong  <e@80x24.org>
+
+	* doc/extension.rdoc: note rb_get_kwargs changes keywords_hash
+	  [ruby-core:68507]
+
+Fri Jun  5 05:50:29 2015  Eric Wong  <e@80x24.org>
+
+	* ext/socket/ancdata.c (bsock_sendmsg_internal): use rb_scan_args
+	  [ruby-core:69439] [Feature #11207]
+
+Fri Jun  5 02:20:06 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* test/lib/envutil.rb (assert_no_memory_leak): change default value
+	  of limit from 1.5 to 2.0. It is ad-hoc fix to solve test failure
+	  in travis-ci.
+
+Fri Jun  5 01:17:21 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_insnhelper.c (vm_defined): no need to use cast.
+
+Fri Jun  5 01:14:02 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_insnhelper.c (vm_defined): show additional messages on rb_bug().
+
+Fri Jun  5 01:06:02 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_method.c (rb_add_method_iseq): use intermediate struct to
+	  avoid initializing struct with variables.
+	  [Bug #11217]
+
+	* method.h: add a comment about it.
+
+Fri Jun  5 00:55:21 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h: constify rb_method_refined_t::orig_me.
+
+	  Also constify the following functions.
+
+	  * rb_resolve_refined_method()
+	  * rb_method_entry_with_refinements()
+	  * rb_method_entry_without_refinements()
+	  * rb_method_entry_copy()'s parameter.
+
+	* class.c: catch up this fix.
+
+	* vm_insnhelper.c: ditto.
+
+	* vm_method.c: ditto.
+
+Thu Jun  4 12:47:54 SGT 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* array.c: Revert r50763. because "reentered" is not typo.
+
+Thu Jun  4 11:12:29 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* ext/win32ole/win32ole.c: fix a typo. Patch by @davydovanton
+	  [fix GH-923]
+	* include/ruby/st.h: ditto.
+	* include/ruby/util.h: ditto.
+
+Thu Jun  4 10:54:30 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* array.c: fix a typo. Patch by @manish-shrivastava
+	  [fix GH-922]
+
+Thu Jun  4 09:52:02 2015  Eric Wong  <e@80x24.org>
+
+	* ext/openssl/lib/openssl/ssl.rb: use io/nonblock instead of fcntl
+	  [ruby-core:69382] [Feature #11190]
+
+Thu Jun  4 07:22:45 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h: introduce rb_method_refined_t for refined method entry.
+
+	* class.c (move_refined_method): catch up this fix.
+
+	* gc.c (mark_method_entry): ditto.
+
+	* vm_eval.c (vm_call0_body): ditto.
+
+	* vm_insnhelper.c (vm_call_method): ditto.
+
+	* vm_method.c: ditto.
+
+Thu Jun  4 07:12:20 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* dir.c (dirent_match): match short names only when FNM_SHORTNAME
+	  flag is given, for the backward compatibility, and the new
+	  behavior is often dangerous.  [ruby-core:69435] [Bug #11206]
+
+Thu Jun  4 05:44:01 2015  Eric Wong  <e@80x24.org>
+
+	* variable.c (special_generic_ivar): remove flag
+	  (givar_i, rb_mark_generic_ivar_tbl): remove functions
+	  (rb_free_generic_ivar, rb_ivar_lookup, rb_ivar_delete,
+	   generic_ivar_set, rb_ivar_set, rb_ivar_defined,
+	   rb_copy_generic_ivar, rb_ivar_foreach, rb_ivar_count,
+	   rb_obj_remove_instance_variable):
+	   adjust for lack of ivar support in special constants
+	* test/ruby/test_variable.rb: test ivars for special consts
+	* internal.h: remove rb_mark_generic_ivar_tbl decl
+	* gc.c (gc_mark_roots): remove rb_mark_generic_ivar_tbl call
+	  [ruby-core:69441] [Feature #11208]
+
+Thu Jun  4 05:13:34 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_insnhelper.c (def_iseq_ptr): `iseqval' is not available any more.
+
+Thu Jun  4 04:50:12 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* class.c (method_entry_i): mtbl should not have `me' as NULL.
+
+Thu Jun  4 04:28:45 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* class.c (clone_method): do not use me->klass, but use explicitly
+	  passed argument.
+
+Thu Jun  4 04:10:43 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_core.h (rb_vm_rewrite_cref_stack): rename to rb_vm_rewrite_cref().
+
+	* class.c (clone_method): use renamed name.
+
+	* vm_insnhelper.c (rb_vm_rewrite_cref): do not use `node' in variable
+	  names.
+
+Wed Jun  3 23:03:50 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_method.c: rename `rb_frame_...' to `rb_scope_...'.
+
+	* eval_intern.h: move decl. of rb_scope_visibility_set() to method.h.
+
+	* load.c: catch up this fix.
+
+Wed Jun  3 21:14:20 2015  Tanaka Akira  <akr@fsij.org>
+
+	* ext/rbconfig/sizeof/extconf.rb: Check C99 standard integer types.
+
+Wed Jun  3 21:00:47 2015  Tanaka Akira  <akr@fsij.org>
+
+	* configure.in: Don't check __int128.
+
+	* ext/rbconfig/sizeof/extconf.rb: Check __int128.
+
+	* ext/rbconfig/sizeof/depend: sizes.c depends on
+	  ext/rbconfig/sizeof/extconf.rb.
+
+	* template/sizes.c.tmpl: Detect check_sizeof.
+
+Wed Jun  3 20:07:07 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* class.c (clone_method): remove redundant check for me->def != NULL.
+	  Now, all `me` have `me->def`.
+
+	* proc.c (rb_method_entry_location): ditto.
+
+	* vm.c (rb_vm_check_redefinition_opt_method): ditto.
+
+	* vm.c (add_opt_method): ditto.
+
+	* vm_eval.c (vm_call0_body): ditto.
+
+Wed Jun  3 19:24:12 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_core.h: rename enum missing_reason to enum method_missing_reason.
+
+	* vm_core.h: use enum method_missing_reason for
+	  rb_thread_t::method_missing_reason.
+
+	* vm_eval.c: catch up this fix.
+
+	* vm_insnhelper.c: ditto.
+
+Wed Jun  3 16:17:21 2015  Aaron Patterson <tenderlove@ruby-lang.org>
+
+	* vm.c: eagerly allocate `loading_table`.  This eliminates the need to
+	  do NULL checks when looking up the `loading_table` hash.
+	  https://github.com/ruby/ruby/pull/918
+
+	* load.c: remove various NULL checks
+
+Wed Jun  3 11:47:15 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h: change fields order to gather frequent access fields.
+
+	* vm_insnhelper.c (vm_call_method): add LIKELY().
+
+Wed Jun 03 10:35:45 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h: split rb_method_definition_t::flag to several flags.
+
+	  `flag' contains several categories of attributes and it makes us
+	  confusion (at least, I had confused).
+
+	  * rb_method_visibility_t (flags::visi)
+	    * NOEX_UNDEF     -> METHOD_VISI_UNDEF     = 0
+	    * NOEX_PUBLIC    -> METHOD_VISI_PUBLIC    = 1
+	    * NOEX_PRIVATE   -> METHOD_VISI_PRIVATE   = 2
+	    * NOEX_PROTECTED -> METHOD_VISI_PROTECTED = 3
+	  * NOEX_SAFE(flag)  -> safe (flags::safe, 3 bits)
+	  * NOEX_BASIC       -> basic (flags::basic, 1 bit)
+	  * NOEX_MODFUNC     -> rb_scope_visibility_t in CREF
+	  * NOEX_SUPER       -> MISSING_SUPER (enum missing_reason)
+	  * NOEX_VCALL       -> MISSING_VCALL (enum missing_reason)
+	  * NOEX_RESPONDS    -> BOUND_RESPONDS (macro)
+
+	  Now, NOEX_NOREDEF is not supported (I'm not sure it is needed).
+
+	  Background:
+	    I did not know what "NOEX" stands for.
+	    I asked Matz (who made this name) and his answer was "Nothing".
+	    "At first, it meant NO EXport (private), but the original
+	    meaning was gone."
+	    This is why I remove the mysterious word "NOEX" from MRI.
+
+	* vm_core.h: introduce `enum missing_reason' to represent
+	  method_missing (NoMethodError) reason.
+
+	* eval_intern.h: introduce rb_scope_visibility_t to represent
+	  scope visibility.
+	  It has 3 method visibilities (public/private/protected)
+	  and `module_function`.
+
+Wed Jun  3 08:06:30 2015  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* gem/bundled_gems: updated to test-unit 3.1.1 and minitest 5.7.0.
+
+Wed Jun  3 04:48:05 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_insnhelper.c (vm_defined): check respond_to_missing?
+	  at defined?(func()).
+	  [Bug #11212]
+
+	* test/ruby/test_defined.rb: add a test for this fix.
+
+Wed Jun  3 04:34:39 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_insnhelper.c (vm_defined): skip respond_to_missing? when
+	  a method is available.
+	  [Bug #11211]
+
+	* test/ruby/test_defined.rb: add a test for this fix.
+
+Wed Jun  3 04:14:13 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* insns.def (defined), vm_insnhelper.c (vm_defined):
+	  move instruction body to the vm_defined() function.
+
+Wed Jun  3 02:29:25 2015  Benoit Daloze  <eregontp@gmail.com>
+
+	* test/ruby/test_module.rb: Do not assume class variable order.
+	  Patch by @enebo.
+
+Wed Jun  3 01:10:38 2015  Yusuke Endoh  <mame@tsg.ne.jp>
+
+	* vm_method.c (rb_method_definition_set): remove a double assignment.
+	  Coverity Scan found this bug.
+
+Wed Jun  3 00:04:51 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_method.c (rb_alias): rename parameter names.
+
+Tue Jun  2 23:27:18 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h: remove rb_method_iseq_t::iseqval.
+	  While making a r50728, iseqval is needed (to mark correctly),
+	  but now just iseqptr is enough.
+
+	* class.c: catch up this fix.
+
+	* gc.c: ditto.
+
+	* proc.c: ditto.
+
+	* vm_method.c: ditto.
+
+Tue Jun  2 21:29:28 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* proc.c (proc_curry): remove a debug line.
+
+Tue Jun  2 12:43:46 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h: make rb_method_entry_t a VALUE.
+	  Motivation and new data structure are described in [Bug #11203].
+
+	  This patch also solve the following issues.
+
+	  * [Bug #11200] Memory leak of method entries
+	  * [Bug #11046] __callee__ returns incorrect method name in orphan
+	                 proc
+
+	* test/ruby/test_method.rb: add a test for [Bug #11046].
+
+	* vm_core.h: remove rb_control_frame_t::me. me is located at value
+	  stack.
+
+	* vm_core.h, gc.c, vm_method.c: remove unlinked_method... codes
+	  because method entries are simple VALUEs.
+
+	* method.h: Now, all method entries has own independent method
+	  definitions. Strictly speaking, this change is not essential,
+	  but for future changes.
+
+	  * rb_method_entry_t::flag is move to rb_method_definition_t::flag.
+	  * rb_method_definition_t::alias_count is now
+	    rb_method_definition_t::alias_count_ptr, a pointer to the counter.
+
+	* vm_core.h, vm_insnhelper.c (rb_vm_frame_method_entry) added to
+	  search the current method entry from value stack.
+
+	* vm_insnhelper.c (VM_CHECK_MODE): introduced to enable/disable
+	  assertions.
+
+Tue Jun  2 10:46:36 2015  Eric Wong  <e@80x24.org>
+
+	* test/socket/test_nonblock.rb: new test for sendmsg_nonblock
+
+Tue Jun  2 09:04:14 2015  Eric Wong  <e@80x24.org>
+
+	* lib/benchmark.rb: just use Process::CLOCK_MONOTONIC
+	  [ruby-core:69390]
+
+Mon Jun  1 22:01:27 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* lib/mkmf.rb (pkg_config): split --libs if --libs-only-l option
+	  is not available.  patch in [ruby-core:69428] by Hans Mackowiak.
+	  [ruby-core:69421] [Bug #11201]
+
+Mon Jun  1 21:18:24 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* gc.c (gc_mark_children): remove a garbage character
+	  introduced at the last commit.
+
+Mon Jun  1 19:24:42 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_method.c (rb_method_entry_make): do not show warning message
+	  when method_entry is an alias.
+
+Mon Jun  1 15:47:16 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* internal.h: move class related definitions.
+
+Mon Jun  1 15:43:03 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* class.c: remove needless include pragma for method.h.
+
+	* struct.c: ditto.
+
+	* vm_method.c: ditto.
+
+Mon Jun  1 05:42:00 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* eval_intern.h, vm_method.c: move macros to functions.
+	  * SCOPE_TEST(f)  -> rb_frame_visibility_test(flag).
+	  * SCOPE_CHECK(f) -> rb_frame_visibility_check(flag).
+	  * SCOPE_SET(f)   -> rb_frame_visibility_set(flag).
+
+	* load.c (load_ext): use it.
+
+Mon Jun  1 04:47:37 2015  Zachary Scott  <e@zzak.io>
+
+	* ext/date/date_core.c: [DOC] Add comparison of Time and DateTime
+	  Patch provided by @pixeltrix
+
+Mon Jun  1 04:22:09 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_core.h (VM_FRAME_MAGIC_DUMMY): introduce new frame type to
+	  recognize dummy frame.
+
+	* vm.c (th_init): use new frame type.
+
+	* vm_args.c (raise_argument_error): ditto.
+
+Mon Jun  1 04:15:42 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* class.c (rb_class_has_methods): added to reduce dependency
+	  to internal class data structure.
+
+	* internal.h: ditto.
+
+	* hash.c (has_extra_methods): use added function.
+
+Mon Jun  1 04:11:48 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* gc.c , gc.h (rb_obj_info): export obj_info(VALUE) for debugging.
+
+Mon Jun  1 03:52:55 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* test/ruby/test_gc.rb: increase timeout seconds for GC stressful
+	  debugging.
+
+Sun May 31 04:18:06 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h: fix typo of comments.
+
+Sun May 31 03:36:42 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h: add VM_METHOD_TYPE_ALIAS rb_method_definition_t::type
+	  to fix [Bug #11173].
+
+	  Now, inter class/method alias creates new method entry
+	  VM_METHOD_TYPE_ALIAS, which has an original method entry.
+
+	* vm_insnhelper.c (find_defined_class_by_owner): added.
+	  Search corresponding defined_class from owner class/module.
+
+	* vm_method.c (rb_method_entry_get_without_cache): return me->klass
+	  directly for defined_class.
+
+	  Now, no need to check me->klass any more.
+
+	* vm_method.c (method_entry_set0): separated from method_entry_set().
+
+	* vm_method.c (rb_alias): make method entry has VM_METHOD_TYPE_ALIAS.
+
+	* vm_method.c (release_method_definition): support VM_METHOD_TYPE_ALIAS.
+
+	* vm_method.c (rb_hash_method_definition): ditto.
+
+	* vm_method.c (rb_method_definition_eq): ditto.
+
+	* vm_method.c (release_method_definition): ditto.
+
+	* vm_insnhelper.c (vm_call_method): ditto.
+
+	* vm_insnhelper.c (vm_method_cfunc_entry): ditto.
+
+	* vm_eval.c (vm_call0_body): ditto.
+
+	* gc.c (mark_method_entry): ditto.
+
+	* proc.c (method_def_iseq): ditto.
+
+	* proc.c (method_cref): ditto.
+
+	* proc.c (rb_method_entry_min_max_arity): ditto.
+
+	* test/ruby/test_alias.rb: add tests.
+
+	* test/ruby/test_module.rb: fix a test to catch up current behavior.
+
+Sun May 31 03:34:25 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* vm_method.c (rb_unlink_method_entry): make it static.
+
+Sun May 31 03:26:58 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* method.h, vm_method.c (rb_free_method_entry): constify a parameter.
+
+	* vm_core.h: remove useless declaration about rb_unlink_method_entry().
+
+Sat May 30 18:05:02 2015  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* lib/tempfile.rb (Remover#call): fixed wrong condition.  introduced at
+	  r50682.
+
+Sat May 30 16:12:35 2015  Eric Wong  <e@80x24.org>
+
+	* ext/socket/ancdata.c: use RB_GC_GUARD instead of volatile
+	  [ruby-core:69419] [Feature #11198]
+
+Sat May 30 15:59:10 2015  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* lib/tempfile.rb (Tempfile#initialize): initialize @unlinked to fix
+	  test failures introduced at r50682.  I hope that check the results of
+	  tests before committing, at least the tests about the changed feature.
+
+Sat May 30 11:02:55 2015  Martin Englund <martin@englund.nu>
+
+	* doc/dtrace_probes.rdoc: change lingering dtrace probe documentation
+	  from function- to method-
+
+Sat May 30 10:26:09 2015  Masaki Matsushita <glass.saga@gmail.com>
+
+	* lib/tempfile.rb: refactoring.
+	  * use warn instead of STDERR.print
+	  * remove @tmpname and use @tmpfile.path
+	  * introduce @unlinked flag
+	  * Remover takes only @tmpfile
+	  * mode will be modified just before file reopen
+
+Sat May 30 09:02:51 2015  Eric Wong  <e@80x24.org>
+
+	* include/ruby/intern.h (rb_generic_ivar_table): deprecate
+	* internal.h (rb_attr_delete): declare
+	* marshal.c (has_ivars): use rb_ivar_foreach
+	  (w_ivar): ditto
+	  (w_object): update for new interface
+	* time.c (time_mload): use rb_attr_delete
+	* variable.c (generic_ivar_delete): implement
+	  (rb_ivar_delete): ditto
+	  (rb_attr_delete): ditto
+	  [ruby-core:69323] [Feature #11170]
+
+Sat May 30 09:14:28 2015  Scott Francis  <scott.francis@shopify.com>
+
+	* cont.c (cont_free): check if ruby_current_thread is still valid.
+	  [Fix GH-914]
+
+Sat May 30 08:36:04 2015  Eric Wong  <e@80x24.org>
+
+	* variable.c (static int special_generic_ivar): move
+	  (rb_generic_ivar_table): rewrite for compatibility
+	  (gen_ivtbl_bytes): new function
+	  (generic_ivar_get): update to use ivar index
+	  (generic_ivar_update): ditto
+	  (generic_ivar_set): ditto
+	  (generic_ivar_defined): ditto
+	  (generic_ivar_remove): ditto
+	  (rb_mark_generic_ivar): ditto
+	  (givar_i): ditto
+	  (rb_free_generic_ivar): ditto
+	  (rb_mark_generic_ivar_tbl): ditto
+	  (rb_generic_ivar_memsize): ditto
+	  (rb_copy_generic_ivar): ditto
+	  (rb_ivar_set): ditto
+	  (rb_ivar_foreach): ditto
+	  (rb_ivar_count): ditto
+	  (givar_mark_i): remove
+	  (gen_ivtbl_mark): new function
+	  (gen_ivar_each): ditto
+	  (iv_index_tbl_extend): update for struct ivar_update
+	  (iv_index_tbl_newsize): ditto
+	  [ruby-core:69323] [Feature #11170]
+
+Sat May 30 08:10:46 2015  Eric Wong  <e@80x24.org>
+
+	* variable.c (iv_index_tbl_make): extract from rb_ivar_set
+	  (iv_index_tbl_extend): ditto
+	  (iv_index_tbl_newsize): ditto
+	  (rb_ivar_set): use extracted functions
+	  [ruby-core:69323] (Part 1)
+
+Fri May 29 17:39:14 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* tool/make_hgraph.rb: added.
+
+Fri May 29 14:39:00 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* compile.c (iseq_compile_each): out of range NTH_REF is always
+	  nil.
+
+	* parse.y (parse_numvar): check overflow of NTH_REF and range.
+	  [ruby-core:69393] [Bug #11192]
+
+	* util.c (ruby_scan_digits): make public and add length parameter.
+
+Fri May 29 11:18:58 2015  Eric Wong  <e@80x24.org>
+
+	* ext/socket/ancdata.c (bsock_sendmsg_internal,
+	  bsock_recvmsg_internal):
+	  avoid redundant fcntl on Linux
+	  [ruby-core:69154] [Feature #11145]
+	* ext/socket/init.c (rsock_s_recvfrom_nonblock): ditto
+	* ext/socket/rubysocket.h (MSG_DONTWAIT_RELIABLE): new macro
+
+Fri May 29 10:30:34 2015  Eric Wong  <e@80x24.org>
+
+	* lib/net/resolv.rb (request): use monotonic clock
+	* lib/net/http.rb (begin_transport, end_transport): ditto
+	  [ruby-core:69384] [Feature #11124]
+
+Fri May 29 04:37:38 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* ext/objspace/objspace.c: add two methods to debug internals.
+
+	  * ObjectSpace.internal_class_of: return RBASIC_CLASS(obj).
+	  * ObjectSpace.internal_super_of: return RCLASS_SUPER(cls).
+
+	* NEWS: add information about both methods.
+
+	* test/objspace/test_objspace.rb: add tests for both methods.
+
+Thu May 28 06:55:53 2015  Anton Davydov  <antondavydov.o@gmail.com>
+
+	* ext/tk/sample/figmemo_sample.rb (open_file),
+	  ext/tk/sample/tktextio.rb (TkTextIO): fix typo in messages.
+	  [Fix GH-916]
+
+Wed May 27 09:50:51 2015  Eric Wong  <e@80x24.org>
+
+	* ext/openssl/ossl_asn1.c (ossl_asn1_traverse, ossl_asn1_decode,
+	  ossl_asn1_decode_all): use RB_GC_GUARD instead of volatile
+	  [ruby-core:69371] [Bug #11185]
+
+Wed May 27 09:27:30 2015  Eric Wong  <e@80x24.org>
+
+	* lib/drb/drb.rb (set_sockopt): remove redundant fcntl call
+	* lib/drb/unix.rb (set_sockopt): ditto
+	  [ruby-core:69128] [Feature #11137]
+
+Tue May 26 22:10:43 2015  Shugo Maeda  <shugo@ruby-lang.org>
+
+	* vm_method.c (rb_alias): should resolve refined methods.
+	  [ruby-core:69360] [Bug #11182]
+
+Tue May 26 21:35:13 2015  Kazuhiro NISHIYAMA  <zn@mbf.nifty.com>
+
+	* include/ruby/defines.h (RUBY_ATTR_ALLOC_SIZE): fix condition.
+
+Mon May 25 22:35:58 2015  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* tool/redmine-backporter.rb (rel): after the relations is changed,
+	  @changesets is no longer right.
+
+Mon May 25 11:27:14 2015  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* win32/win32.c (setup_overlapped): seek to the file end only when
+	  writing (mode:a), not reading (mode:a+, read).
+
+Mon May 25 00:27:37 2015  Benoit Daloze  <eregontp@gmail.com>
+
+	* numeric.c (Numeric#negative?): [DOC] Fix call-seq.
+	  Patch by @yui-knk. [Fixes GH-908]
+
+Sun May 24 01:35:22 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* debug.c (ruby_debug_print_id): use rb_id2name() for fprintf().
+
+Sat May 23 18:38:46 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* man/*.1: updated dates in man pages.
+	  [ruby-dev:48988] [Bug #11171]
+
+Sat May 23 03:10:58 2015  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* win32/win32.c (rb_w32_write_console): should return the count of
+	  actually eaten characters, include escape sequences.
+
+Fri May 22 22:36:14 2015  Marc-Andre Lafortune  <ruby-core@marc-andre.ca>
+
+	* lib/prime.rb: Remove obsolete Prime.new
+	  patch by Ajay Kumar. [Fixes GH-891]
+
+Fri May 22 21:13:12 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* include/ruby/intern.h (rb_sym_count): move `rb_sym_all_symbols`
+	  to a symbol.c specific section.  a part of patch by Lourens
+	  Naude.
+
+Fri May 22 20:56:33 2015  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* complex.c (f_complex_polar): simple bug reproduced only when y is
+	  a float but x is not a float.
+
+Fri May 22 19:42:06 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* process.c (rb_spawn_process): do not discard global escape
+	  status.  [ruby-core:69304] [Bug #11166]
+
+	* process.c (rb_execarg_spawn): extract the start procedure in a
+	  parent process with ensuring the end procedure.
+
+Fri May 22 16:48:32 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* NEWS: added news for net-telnet and rake
+
+Thu May 21 20:27:07 2015  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* configure.in (RUBY_DTRACE_POSTPROCESS): cmp -b is GNU extension.
+	  darwin uses GNU cmp, and FreeBSD and Solaris are not.
+	  Note that accidentally equals to expected result.
+
+Thu May 21 18:00:19 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* iseq.c: constify.
+
+	* iseq.h: ditto.
+
+	* method.h: ditto.
+
+	* proc.c: ditto.
+
+	* vm_method.c: ditto.
+
+Thu May 21 17:44:53 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* proc.c: fix issues caused by binding created from Method#to_proc.
+	  [Bug #11163]
+
+	* vm.c (vm_cref_new_toplevel): export as rb_vm_cref_new_toplevel().
+
+	* test/ruby/test_method.rb: add some assertions.
+
+Thu May 21 17:29:26 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* lib/matrix.rb: added documentation for Matrix#empty and Matrix#/
+	  [Feature #10070][ruby-dev:48433] Patch by @gogotanaka
+
+Thu May 21 17:02:43 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* proc.c: rename functions.
+	  * method_get_def() -> method_def()
+	  * method_get_iseq() -> method_def_iseq()
+	  * method_get_cref() -> method_cref()
+
+Thu May 21 16:52:44 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* proc.c (rb_method_get_iseq): rename to rb_method_iseq.
+
+	* iseq.c: catch up this fix.
+
+	* iseq.h: commit ditto.
+
+Thu May 21 15:41:45 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* lib/net/telnet.rb: gemify net-telnet.
+	  [Feature #11083]
+	* gems/bundled_gems: added net-telnet to bundled gems.
+
+Thu May 21 15:37:32 2015  Zachary Scott  <e@zzak.io>
+
+	* vm_method.c: Remove private attribute warning [Bug #10967]
+	  Patch by @spastorino [Fixes GH-849]
+	  https://github.com/ruby/ruby/pull/849
+
+	* test/ruby/test_module.rb: Update test for changes
+
+Thu May 21 10:59:43 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* proc.c (method_proc): rename to method_to_proc.
+
+Thu May 21 10:51:54 2015  Jake Worth  <jakeworth82@gmail.com>
+
+	* io.c (rb_f_select): [DOC] Fixes for grammar and style.
+	  [Fix GH-906]
+
+Thu May 21 08:25:19 2015  Eric Wong  <e@80x24.org>
+
+	* variable.c (Init_var_tables): init generic_iv_tbl
+	  (rb_generic_ivar_table, generic_ivar_get, generic_ivar_set,
+	   generic_ivar_defined, generic_ivar_remove,
+	   rb_mark_generic_ivar, givar_i, rb_mark_generic_ivar_tbl,
+	   rb_free_generic_ivar, rb_copy_generic_ivar, rb_ivar_foreach,
+	   rb_ivar_count): remove checks for uninitialize generic_iv_tbl
+	[ruby-core:69155] [Feature #11146]
+
+Thu May 21 04:11:03 2015  Koichi Sasada  <ko1@atdot.net>
+
+	* iseq.c (exception_type2symbol): show correct bug message.
+
+Wed May 20 23:19:05 2015  Yusuke Endoh  <mame@ruby-lang.org>
+
+	* lib/base64.rb: Fix rdoc-formatting for padding argument.
+	  [fix GH-905][ci skip] Patch by @davydovanton
+
+Wed May 20 13:16:23 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* configure.in (DEPRECATED_BY): deprecate warning with preferable
+	  alternative.
+
+	* configure.in (RUBY_FUNC_ATTRIBUTE): allow attribute arguments in
+	  the macro.
+
+Wed May 20 11:23:24 2015  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* vm_dump.c (rb_print_backtrace): return value of libexec's backtrace
+	  is size_t, so simply cast as int.
+
+Tue May 19 18:54:41 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* iseq.c (rb_iseq_compile_with_option): check source type, must be
+	  an IO or a String.  [ruby-core:69219] [Bug #11159]
+
+Tue May 19 17:15:03 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* lib/benchmark.rb: Update Benchmark documentation and formatting.
+	  [fix GH-903][ci skip] Patch by @davydovanton
+
+Tue May 19 13:10:08 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* numeric.c (num_positive_p): should false on Bignum 0.
+	  http://twitter.com/rafaelfranca/status/600509783427391488
+	  [ruby-core:69173] [Feature #11151]
+
+Tue May 19 11:22:28 2015  NARUSE, Yui  <naruse@ruby-lang.org>
+
+	* lib/uri/rfc2396_parser.rb (initialize_pattern):
+	  URI::Generic.build should accept port as a string.
+	  pattern[:PORT] is not defined for long.
+	  by Dave Slutzkin <daveslutzkin@fastmail.fm>
+	  https://github.com/ruby/ruby/pull/804 fix GH-804
+
+Tue May 19 11:18:46 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* include/ruby/ruby.h (rb_data_typed_object_alloc),
+	  (rb_data_object_alloc): add old names for source level backward
+	  compatibilities.
+
+	* gc.c (rb_data_object_alloc, rb_data_typed_object_alloc): add
+	  aliases for binary level backward compatibilities.
+
+Tue May 19 09:54:44 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* include/ruby/ruby.h (Data_Make_Struct0): needs function pointer
+	  casts to fix function overloading in C++.
+
+Tue May 19 09:43:56 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* include/ruby/ruby.h (Data_Make_Struct0, TypedData_Make_Struct0):
+	  explicit cast from void* is necessary as implicit cast is
+	  disallowed in C++.
+
+Mon May 18 15:31:31 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* include/ruby/intern.h (rb_f_notimplement): should not respond to
+	  not-implemented methods.  as the address inside a DLL and the
+	  imported address are different on Windows, use an exported
+	  variable to share the same address.
+
+Mon May 18 13:55:01 2015  Shugo Maeda  <shugo@ruby-lang.org>
+
+	* lib/monitor.rb (mon_try_enter, mon_enter): should reset @mon_count
+	  just in case the previous owner thread dies without mon_exit.
+	  [fix GH-874] Patch by @chrisberkhout
+
+Sun May 17 17:21:29 2015  Eric Wong  <e@80x24.org>
+
+	* lib/webrick/utils.rb (set_non_blocking): use IO#nonblock=
+	* (set_close_on_exec): use IO#close_on_exec=
+	  [Feature #11136]
+
+Sun May 17 15:01:26 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* numeric.c (num_positive_p, num_negative_p): add methods
+	  Numeric#positive? and Numeric#negative?.
+	  [ruby-core:69173] [Feature #11151]
+
+	* numeric.c (flo_positive_p, flo_negative_p): specialized
+	  functions for Float.
+
+	* complex.c (Init_Complex): Complex do not have positive? and
+	  negative? methods
+
+Sun May 17 14:57:42 2015  Eric Wong  <e@80x24.org>
+
+	* lib/webrick/server.rb (accept_client): avoid redundant fcntl call
+	  [Feature #11137]
+
+Sun May 17 12:13:33 2015  Eric Wong  <e@80x24.org>
+
+	* ext/socket/init.c (cloexec_accept): support nonblock flag and
+	  use SOCK_NONBLOCK if possible
+	* ext/socket/init.c (rsock_s_accept_nonblock):
+	  update cloexec_accept call
+	* ext/socket/init.c (accept_blocking): ditto for blocking
+	* test/socket/test_nonblock.rb: check nonblock? on accepted socket
+	  [Feature #11138]
+
+Sun May 17 03:58:59 2015  Aaron Patterson <tenderlove@ruby-lang.org>
+
+	* load.c (loaded_feature_path): stop returning false negatives for
+	  filenames which are trailing substrings of file extensions.  For
+	  example, 'b', which a trailing substring of ".rb" should not return
+	  false. [Bug #11155][ruby-core:69206]
+
+	* test/ruby/test_autoload.rb: test for fix
+
+Sat May 16 21:41:24 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* string.c: added documentation for character sequence \' with String#sub
+	  [Bug #11132][ruby-core:69121][fix GH-900][ci skip] Patch by @shishir127
+
+Sat May 16 21:38:05 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* enum.c: fix a sample code. Patch by @eagletmt
+	  [fix GH-901][ci skip]
+
+Sat May 16 21:17:11 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* gc.c (rb_data_object_wrap, rb_data_typed_object_wrap): rename
+	  alloc as wrap.  these functions do not allocate data pointers
+	  but just wrap the given pointers.
+
+Sat May 16 19:59:24 2015  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* win32/win32.c (rb_w32_accept): simplified.
+
 Fri May 15 18:28:20 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
 
 	* array.c (rb_ary_assoc, rb_ary_rassoc): [DOC] the result when key

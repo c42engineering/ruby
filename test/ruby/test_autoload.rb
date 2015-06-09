@@ -55,6 +55,32 @@ p Foo::Bar
     }
   end
 
+  def test_autoload_with_unqualified_file_name # [ruby-core:69206]
+    lp = $LOAD_PATH.dup
+    lf = $LOADED_FEATURES.dup
+
+    Dir.mktmpdir('autoload') { |tmpdir|
+      $LOAD_PATH << tmpdir
+
+      Dir.chdir(tmpdir) do
+        eval <<-END
+          class ::Object
+            module A
+              autoload :C, 'b'
+            end
+          end
+        END
+
+        File.open('b.rb', 'w') {|file| file.puts 'module A; class C; end; end'}
+        assert_kind_of Class, ::A::C
+      end
+    }
+  ensure
+    $LOAD_PATH.replace lp
+    $LOADED_FEATURES.replace lf
+    Object.send(:remove_const, :A) if Object.const_defined?(:A)
+  end
+
   def test_require_explicit
     Tempfile.create(['autoload', '.rb']) {|file|
       file.puts 'class Object; AutoloadTest = 1; end'
@@ -188,19 +214,11 @@ p Foo::Bar
 
   def add_autoload(path)
     (@autoload_paths ||= []) << path
-    eval <<-END
-      class ::Object
-        autoload :AutoloadTest, #{path.dump}
-      end
-    END
+    ::Object.class_eval {autoload(:AutoloadTest, path)}
   end
 
   def remove_autoload_constant
     $".replace($" - @autoload_paths)
-    eval <<-END
-      class ::Object
-        remove_const(:AutoloadTest)
-      end
-    END
+    ::Object.class_eval {remove_const(:AutoloadTest)}
   end
 end

@@ -275,47 +275,6 @@ nlz_int128(uint128_t x)
      SIZEOF_LONG * CHAR_BIT - nlz_long((unsigned long)(x)))
 #endif
 
-struct rb_deprecated_classext_struct {
-    char conflict[sizeof(VALUE) * 3];
-};
-
-struct rb_subclass_entry;
-typedef struct rb_subclass_entry rb_subclass_entry_t;
-
-struct rb_subclass_entry {
-    VALUE klass;
-    rb_subclass_entry_t *next;
-};
-
-#if defined(HAVE_LONG_LONG)
-typedef unsigned LONG_LONG rb_serial_t;
-#define SERIALT2NUM ULL2NUM
-#elif defined(HAVE_UINT64_T)
-typedef uint64_t rb_serial_t;
-#define SERIALT2NUM SIZET2NUM
-#else
-typedef unsigned long rb_serial_t;
-#define SERIALT2NUM ULONG2NUM
-#endif
-
-struct rb_classext_struct {
-    struct st_table *iv_index_tbl;
-    struct st_table *iv_tbl;
-    struct st_table *const_tbl;
-    rb_subclass_entry_t *subclasses;
-    rb_subclass_entry_t **parent_subclasses;
-    /**
-     * In the case that this is an `ICLASS`, `module_subclasses` points to the link
-     * in the module's `subclasses` list that indicates that the klass has been
-     * included. Hopefully that makes sense.
-     */
-    rb_subclass_entry_t **module_subclasses;
-    rb_serial_t class_serial;
-    const VALUE origin_;
-    VALUE refined_class;
-    rb_alloc_func_t allocator;
-};
-
 #ifndef BDIGIT
 # if SIZEOF_INT*2 <= SIZEOF_LONG_LONG
 #  define BDIGIT unsigned int
@@ -469,6 +428,48 @@ extern void ruby_init_setproctitle(int argc, char *argv[]);
 #endif
 
 /* class.c */
+
+struct rb_deprecated_classext_struct {
+    char conflict[sizeof(VALUE) * 3];
+};
+
+struct rb_subclass_entry;
+typedef struct rb_subclass_entry rb_subclass_entry_t;
+
+struct rb_subclass_entry {
+    VALUE klass;
+    rb_subclass_entry_t *next;
+};
+
+#if defined(HAVE_LONG_LONG)
+typedef unsigned LONG_LONG rb_serial_t;
+#define SERIALT2NUM ULL2NUM
+#elif defined(HAVE_UINT64_T)
+typedef uint64_t rb_serial_t;
+#define SERIALT2NUM SIZET2NUM
+#else
+typedef unsigned long rb_serial_t;
+#define SERIALT2NUM ULONG2NUM
+#endif
+
+struct rb_classext_struct {
+    struct st_table *iv_index_tbl;
+    struct st_table *iv_tbl;
+    struct st_table *const_tbl;
+    rb_subclass_entry_t *subclasses;
+    rb_subclass_entry_t **parent_subclasses;
+    /**
+     * In the case that this is an `ICLASS`, `module_subclasses` points to the link
+     * in the module's `subclasses` list that indicates that the klass has been
+     * included. Hopefully that makes sense.
+     */
+    rb_subclass_entry_t **module_subclasses;
+    rb_serial_t class_serial;
+    const VALUE origin_;
+    VALUE refined_class;
+    rb_alloc_func_t allocator;
+};
+
 void rb_class_subclass_add(VALUE super, VALUE klass);
 void rb_class_remove_from_super_subclasses(VALUE);
 
@@ -534,6 +535,7 @@ enum imemo_type {
     imemo_throw_data = 3,
     imemo_ifunc = 4,
     imemo_memo = 5,
+    imemo_ment = 6,
     imemo_mask = 0x07
 };
 
@@ -543,21 +545,13 @@ imemo_type(VALUE imemo)
     return (RBASIC(imemo)->flags >> FL_USHIFT) & imemo_mask;
 }
 
-/* CREF */
-
-typedef struct rb_cref_struct {
-    VALUE flags;
-    const VALUE refinements;
-    const VALUE klass;
-    VALUE visi;
-    struct rb_cref_struct * const next;
-} rb_cref_t;
+/* CREF in method.h */
 
 /* SVAR */
 
 struct vm_svar {
     VALUE flags;
-    const rb_cref_t * const cref;
+    const VALUE cref_or_me;
     const VALUE lastline;
     const VALUE backref;
     const VALUE others;
@@ -614,6 +608,8 @@ struct MEMO {
 #define NEW_MEMO_FOR(type, value) \
   ((value) = rb_ary_tmp_new_fill(type_roomof(type, VALUE)), MEMO_FOR(type, value))
 
+/* ment is in method.h */
+
 /* global variable */
 
 struct rb_global_entry {
@@ -666,6 +662,8 @@ VALUE rb_special_singleton_class(VALUE);
 VALUE rb_singleton_class_clone_and_attach(VALUE obj, VALUE attach);
 VALUE rb_singleton_class_get(VALUE obj);
 void Init_class_hierarchy(void);
+
+int rb_class_has_methods(VALUE c);
 
 /* compar.c */
 VALUE rb_invcmp(VALUE, VALUE);
@@ -1142,6 +1140,7 @@ extern rb_encoding OnigEncodingUTF_8;
 /* variable.c */
 size_t rb_generic_ivar_memsize(VALUE);
 VALUE rb_search_class_path(VALUE);
+VALUE rb_attr_delete(VALUE, ID);
 
 /* version.c */
 extern VALUE ruby_engine_name;
@@ -1272,11 +1271,11 @@ VALUE rb_setup_fake_str(struct RString *fake_str, const char *name, long len, rb
 /* util.c (export) */
 extern const signed char ruby_digit36_to_number_table[];
 extern const char ruby_hexdigits[];
+extern unsigned long ruby_scan_digits(const char *str, ssize_t len, int base, size_t *retlen, int *overflow);
 
 /* variable.c (export) */
 void rb_gc_mark_global_tbl(void);
 void rb_mark_generic_ivar(VALUE);
-void rb_mark_generic_ivar_tbl(void);
 VALUE rb_const_missing(VALUE klass, VALUE name);
 
 int rb_st_insert_id_and_value(VALUE obj, st_table *tbl, ID key, VALUE value);
