@@ -52,10 +52,8 @@
 #ifdef _WIN32
 /*
  * TODO: object space independent st_table.
- * socklist needs st_table in rb_w32_sysinit(), before object space
- * initialization.
- * It is too early now to change st_hash_type, since it breaks binary
- * compatibility.
+ * socklist and conlist will be freed exit_handler(), after object
+ * space destruction.
  */
 #define ENABLE_VM_OBJSPACE 0
 #else

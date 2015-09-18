@@ -1,3 +1,111 @@
+Fri Sep 18 16:56:19 2015  Shugo Maeda  <shugo@ruby-lang.org>
+
+	* NEWS: add Net::FTP#mlst and Net::FTP#mlsd.
+
+Fri Sep 18 07:39:22 2015  Aaron Patterson <tenderlove@ruby-lang.org>
+
+	* ext/objspace/objspace_dump.c (obj_type): add IMEMO types to the heap
+	  dump information.
+
+Thu Sep 17 22:33:07 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* common.mk: fix command error with outside builddir.
+
+Thu Sep 17 17:42:09 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
+
+	* common.mk: separated test for test-framework from test-all task.
+	  They should be invoke at first before tests of test-all.
+
+Thu Sep 17 12:05:54 2015  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* test/ruby/test_dir.rb (TestDir#test_fileno): s/?x/"x"/. Don't
+	  use tricky code, please.
+
+Wed Sep 16 20:49:56 2015  Masaki Suketa  <masaki.suketa@nifty.ne.jp>
+
+	* encindex.h: fix typo of last #endif comment. [ci skip]
+
+Wed Sep 16 20:39:26 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* variable.c (set_const_visibility): fail if the class/module is
+	  frozen.  [ruby-core:70828] [Bug #11532]
+
+Wed Sep 16 17:16:43 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* vm_core.h (ENABLE_VM_OBJSPACE): enable per-VM object space on
+	  Windows by default, as rb_w32_sysinit() no longer depends on
+	  ruby_xmalloc.
+
+Wed Sep 16 15:08:17 2015  Akinori MUSHA  <knu@iDaemons.org>
+
+	* doc/syntax/literals.rdoc (Strings): [DOC] Revise the character
+	  literal part.
+
+Wed Sep 16 14:55:33 2015  Akinori MUSHA  <knu@iDaemons.org>
+
+	* doc/syntax/literals.rdoc (Strings): [DOC] Document the full list
+	  of supported escape sequences in string literals.
+
+Wed Sep 16 14:49:58 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* string.c (rb_str_setbyte): keep the code range as possible.
+
+Wed Sep 16 13:23:48 2015  NAKAMURA Usaku  <usa@ruby-lang.org>
+
+	* doc/syntax/literals.rdoc (Strings): mention about ?a literal.
+
+Wed Sep 16 12:06:53 2015  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* dir.c (glob_helper): check pathtype once again by lstat(2) if
+	  dp->d_type is DT_UNKNOWN. XFS may return DT_UNKNOWN.
+
+Wed Sep 16 03:49:19 2015  KOSAKI Motohiro  <kosaki.motohiro@gmail.com>
+
+	* test/ruby/test_thread.rb (TestThread#test_mutex_synchronize):
+	  insert waste loop for invoking preemptive thread context switch.
+	  [Bug #11496]
+
+Tue Sep 15 19:38:55 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* gc.c (rb_objspace_alloc, rb_objspace_free): define always
+	  regardless ENABLE_VM_OBJSPACE, and free heap pages.
+
+Tue Sep 15 15:15:41 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* win32/win32.c (rb_w32_sysinit, rb_w32_readdir): compare by
+	  encoding index to get rid of encoding initialization before VM
+	  object space allocation.
+
+	* dir.c (fundamental_encoding_p, push_glob): compare by encoding
+	  index immediately.
+
+	* enc/{ascii,us_ascii,utf_8}.c: set encoding indexes of
+	  fundamental built-in encodings so that usable as well as
+	  allocated rb_encoding before rb_enc_init().
+
+	* encindex.h: separate encoding index constants from internal.h.
+
+Tue Sep 15 13:13:13 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* array.c (rb_ary_sort_bang, rb_ary_sort): [DOC] correct block
+	  return values, which may be a negative or positive integer, not
+	  only -1 or +1.
+
+Tue Sep 15 12:49:10 2015  Jason Barnabe  <jason.barnabe@gmail.com>
+
+	* array.c (rb_ary_sort_bang, rb_ary_sort): [DOC] Correct
+	  description of array sort block return values.  And also fix up
+	  the grammar a bit.  [Fix GH-1020]
+
+Tue Sep 15 12:44:32 2015  Nobuyoshi Nakada  <nobu@ruby-lang.org>
+
+	* util.c (ruby_qsort): use BSD-style qsort_r if available.
+
+Mon Sep 14 19:26:34 2015  Shugo Maeda  <shugo@ruby-lang.org>
+
+	* lib/net/ftp.rb (parse_mlsx_entry): parse pathnames including
+	  space correctly.
+
 Mon Sep 14 11:12:10 2015  Anton Davydov  <antondavydov.o@gmail.com>
 
 	* lib/racc/rdoc/grammar.en.rdoc: [DOC] fix typo, "convertion" to
@@ -155,8 +263,8 @@ Wed Sep  9 11:33:05 2015  NAKAMURA Usaku  <usa@ruby-lang.org>
 Wed Sep  9 11:08:59 2015  Zachary Scott  <zzak@ruby-lang.org>
 
 	* lib/delegate.rb: Remove backtrace cleaning for delegated methods
-          This patch was provided by Rafael Franca and greatly improves
-          performance when an exception is raised. [Bug #11461]
+	  This patch was provided by Rafael Franca and greatly improves
+	  performance when an exception is raised. [Bug #11461]
 
 Wed Sep  9 10:05:41 2015  SHIBATA Hiroshi  <hsbt@ruby-lang.org>
 
